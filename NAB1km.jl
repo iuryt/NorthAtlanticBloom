@@ -31,7 +31,8 @@ model = NonhydrostaticModel(grid = grid,
 
 
 
-const cz = -250 # thermocline depth 
-
+const cz = -250meters # thermocline depth 
 @inline front(x, y, z) = ((np.tanh(0.03*(z-cz))+1)/2)*(np.tanh(0.5*(x-cx))+1)/2
+@inline B(x, y, z) = (front(x,z,0kilometers,cz)+front(x,z,-20kilometers,cz)+front(x,z,20kilometers,cz))/3
+
 set!(model;b=B)
