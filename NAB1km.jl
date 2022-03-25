@@ -21,7 +21,7 @@ coriolis = FPlane(latitude=60)
 
 
 horizontal_closure = HorizontalScalarDiffusivity(ν=1, κ=1)
-vertical_closure = ScalarDiffusivity(ν=1e-4, κ=1e-4)
+vertical_closure = ScalarDiffusivity(ν=1e-3, κ=1e-3)
 
 model = NonhydrostaticModel(grid = grid,
                             advection = UpwindBiasedFifthOrder(),
@@ -32,7 +32,19 @@ model = NonhydrostaticModel(grid = grid,
 
 
 const cz = -250meters # thermocline depth 
-@inline front(x, y, z) = ((np.tanh(0.03*(z-cz))+1)/2)*(np.tanh(0.5*(x-cx))+1)/2
-@inline B(x, y, z) = (front(x,z,0kilometers,cz)+front(x,z,-20kilometers,cz)+front(x,z,20kilometers,cz))/3
+const L = 50kilometers
+const amp = 1kilometers
+@inline front(x, y, z, cx) = ((tanh(0.03*(z-cz))+1)/2)*(tanh(0.5*(x-(cx+sin(2pi*y/L)*amp)))+1)/2
+@inline B(x, y, z) = (front(x,y,z,0kilometers)+front(x,y,z,-20kilometers)+front(x,y,z,20kilometers))/3/5
 
 set!(model;b=B)
+
+
+simulation = Simulation(model, Δt = 1minutes, stop_time = 10hours)
+
+simulation.output_writers[:fields] =
+    NetCDFOutputWriter(model, merge(model.velocities, model.tracers), filepath = "output.nc",
+                     schedule=TimeInterval(30minute))
+
+
+run!(simulation)
