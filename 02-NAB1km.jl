@@ -9,7 +9,7 @@ const H = 1000 # maximum depth
 
 
 grid = RectilinearGrid(GPU(),
-    size=(Nx+2sponge,Ny,Nz),
+    size=(Nx,Ny+2sponge,Nz),
     halo=(3,3,3),
     x=(-(Nx/2)kilometers, (Nx/2)kilometers), 
     y=(-(Ny/2 + sponge)kilometers, (Ny/2 + sponge)kilometers), 
@@ -19,7 +19,19 @@ grid = RectilinearGrid(GPU(),
 
 coriolis = FPlane(latitude=60)
 
-@inline νh(x,y,z,t) = ifelse((y>-(Ny/2)kilometers)&(y<(Ny/2)kilometers), 1, 10)
+cᴰ = 1e-4 # quadratic drag coefficient
+
+@inline bottom_drag_u(x, y, t, u, v, cᴰ) = - cᴰ * u * sqrt(u^2 + v^2)
+@inline bottom_drag_v(x, y, t, u, v, cᴰ) = - cᴰ * v * sqrt(u^2 + v^2)
+
+bottom_drag_bc_u = FluxBoundaryCondition(bottom_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
+bottom_drag_bc_v = FluxBoundaryCondition(bottom_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
+
+u_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_u)
+v_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_v)
+
+
+@inline νh(x,y,z,t) = ifelse((y>-(Ny/2)kilometers)&(y<(Ny/2)kilometers), 1, 120)
 horizontal_closure = HorizontalScalarDiffusivity(ν=νh, κ=νh)
 
 @inline νz(x,y,z,t) = ifelse((y>-(Ny/2)kilometers)&(y<(Ny/2)kilometers), 1e-5, 1e-4)
@@ -40,14 +52,13 @@ model = NonhydrostaticModel(grid = grid,
                             advection = UpwindBiasedFifthOrder(),
                             coriolis = coriolis,
                             closure=(horizontal_closure,vertical_closure),
-                            tracers = (:b, :P), # P for Plankton
+                            tracers = (:b),
                             buoyancy = BuoyancyTracer(),
-                            forcing = (P=plankton_dynamics,))
+                            boundary_conditions = (u=u_bcs, v=v_bcs))
 
 
 
-const cz = -250meters # mld 
-const L = 10kilometers
+const L = (Nx-1)kilometers/10
 const amp = 1kilometers
 const g = 9.82
 const ρₒ = 1026
@@ -59,17 +70,30 @@ const ρₒ = 1026
 @inline decay(z) = (tanh((z+500)/300)+1)/2
 
 # front function
-@inline front(x, y, z, cy) = tanh((y-(cy+sin(2pi*x/L)*amp))/12kilometers)
+@inline front(x, y, z, cy) = tanh((y-(cy+sin(2π * x / L)*amp))/12kilometers)
 
-@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x,y,z,-120kilometers)+front(x,y,z,0)+front(x,y,z,120kilometers))-3)/6
-@inline B(x, y, z) = -(g/ρₒ)*D(x,y,z)
+@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x, y, z, -120kilometers)+front(x, y, z, 0)+front(x, y, z, 120kilometers))-3)/6
+@inline B(x, y, z) = -(g/ρₒ)*D(x, y, z)
 
-@inline P(x, y, z) = ifelse(z>cz,0.4,0)
+set!(model; b = B)
 
-set!(model;b=B,P=P)
+
+U = Field(-(1/model.coriolis.f) * ∂y((Center, Center, Center), model.tracers.b))
+V = Field((1/model.coriolis.f)* ∂x((Center, Center, Center), model.tracers.b))
+compute!(U)
+compute!(V)
+
+include("src/cumulative_vertical_integration.jl")
+
+cumulative_vertical_integration!(U)
+cumulative_vertical_integration!(V)
+
+set!(model; w = 0, u = U)#, v = V)
 
 
 simulation = Simulation(model, Δt = 1minutes, stop_time = 80day)
+# simulation = Simulation(model, Δt = 1minutes, stop_time = 1day)
+
 
 
 wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=6minutes)
@@ -78,7 +102,7 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 simulation.output_writers[:fields] =
     NetCDFOutputWriter(model, merge(model.velocities, model.tracers), filepath = "data/output.nc",
-                     schedule=TimeInterval(1day))
+                     schedule=TimeInterval(8hours))
 
 
 using Printf
