@@ -1,8 +1,8 @@
 using Oceananigans
 using Oceananigans.Units
 
-const sponge=20 #number of points for sponge
-const Nx = 96 # number of points in x
+const sponge = 20 #number of points for sponge
+const Nx = 100 # number of points in x
 const Ny = 460 # number of points in y
 const Nz = 48 # number of points in z
 const H = 1000 # maximum depth
@@ -78,30 +78,45 @@ const ρₒ = 1026
 set!(model; b = B)
 
 
-U = Field(-(1/model.coriolis.f) * ∂y((Center, Center, Center), model.tracers.b))
-V = Field((1/model.coriolis.f)* ∂x((Center, Center, Center), model.tracers.b))
-compute!(U)
-compute!(V)
+grid10 = RectilinearGrid(CPU(),
+    size=(Int(Nx/10),Int((Ny+2sponge)/10),Nz),
+    halo=(3,3,3),
+    x=(-(Nx/2)kilometers, (Nx/2)kilometers), 
+    y=(-(Ny/2 + sponge)kilometers, (Ny/2 + sponge)kilometers), 
+    z=(H * cos.(LinRange(π/2,0,Nz+1)) .- H)meters,
+    topology=(Periodic, Bounded, Bounded)
+)
 
+
+b = model.tracers.b
+f = model.coriolis.f
+
+# shear operations
+uz_op = @at((Face, Center, Center),  ∂y(b) / f );
+vz_op = @at((Center, Face, Center), -∂x(b) / f );
+# compute shear
+uz = compute!(Field(uz_op))
+vz = compute!(Field(vz_op))
+
+# include function for cumulative integration
 include("src/cumulative_vertical_integration.jl")
 
-cumulative_vertical_integration!(U)
-cumulative_vertical_integration!(V)
+# compute geostrophic velocities
+U = cumulative_vertical_integration!(uz)
+V = cumulative_vertical_integration!(vz)
 
-set!(model; w = 0, u = U)#, v = V)
+# prescribe geostrophic velocities for initial condition
+set!(model; u = U, v = V)
 
 
 simulation = Simulation(model, Δt = 1minutes, stop_time = 80day)
-# simulation = Simulation(model, Δt = 1minutes, stop_time = 1day)
-
-
 
 wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=6minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers), filepath = "data/output.nc",
+    NetCDFOutputWriter(model, merge(model.velocities, model.tracers), filename = "data/output_1km.nc",
                      schedule=TimeInterval(8hours))
 
 
