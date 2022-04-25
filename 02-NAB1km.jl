@@ -1,3 +1,4 @@
+using Bioceananigans
 using Oceananigans
 using Oceananigans.Units
 
@@ -64,7 +65,7 @@ const g = 9.82
 const ρₒ = 1026
 
 # background density profile based on Argo data
-@inline bg(z) = 0.25*tanh(0.0027*(-653.3-z))-6.8*z/1e5+1027.56
+@inline bg(z) = 0.08*tanh(0.005*(-618-z))+0.014*(z^2)/1e5+1027.45
 
 # decay function for fronts
 @inline decay(z) = (tanh((z+500)/300)+1)/2
@@ -78,22 +79,12 @@ const ρₒ = 1026
 set!(model; b = B)
 
 
-grid10 = RectilinearGrid(CPU(),
-    size=(Int(Nx/10),Int((Ny+2sponge)/10),Nz),
-    halo=(3,3,3),
-    x=(-(Nx/2)kilometers, (Nx/2)kilometers), 
-    y=(-(Ny/2 + sponge)kilometers, (Ny/2 + sponge)kilometers), 
-    z=(H * cos.(LinRange(π/2,0,Nz+1)) .- H)meters,
-    topology=(Periodic, Bounded, Bounded)
-)
-
-
 b = model.tracers.b
 f = model.coriolis.f
 
 # shear operations
-uz_op = @at((Face, Center, Center),  ∂y(b) / f );
-vz_op = @at((Center, Face, Center), -∂x(b) / f );
+uz_op = @at((Face, Center, Center), -∂y(b) / f );
+vz_op = @at((Center, Face, Center),  ∂x(b) / f );
 # compute shear
 uz = compute!(Field(uz_op))
 vz = compute!(Field(vz_op))
@@ -109,14 +100,23 @@ V = cumulative_vertical_integration!(vz)
 set!(model; u = U, v = V)
 
 
-simulation = Simulation(model, Δt = 1minutes, stop_time = 80day)
+simulation = Simulation(model, Δt = 1minutes, stop_time = 90day)
 
 wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=6minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 
+
+h = Field{Center, Center, Nothing}(grid) 
+# buoyancy decrease criterium for determining the mixed-layer depth
+const Δb = (g/ρₒ) * 0.03
+compute_mixed_layer_depth!(simulation) = MixedLayerDepth!(h, simulation.model.tracers.b, Δb)
+# add the function to the callbacks of the simulation
+simulation.callbacks[:compute_mld] = Callback(compute_mixed_layer_depth!)
+
+
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers), filename = "data/output_1km.nc",
+    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, (; h,)), filename = "data/output_1km.nc",
                      schedule=TimeInterval(8hours))
 
 
