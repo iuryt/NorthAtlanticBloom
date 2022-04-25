@@ -1,4 +1,5 @@
 [deps]
+Bioceananigans = "ace54579-eb90-495b-a991-2a6890241a52"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
