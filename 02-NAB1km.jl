@@ -2,7 +2,7 @@ using Bioceananigans
 using Oceananigans
 using Oceananigans.Units
 
-const sponge = 20 #number of points for sponge
+const sponge = 50 #number of points for sponge
 const Nx = 100 # number of points in x
 const Ny = 460 # number of points in y
 const Nz = 48 # number of points in z
