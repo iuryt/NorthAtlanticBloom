@@ -216,7 +216,7 @@ latex_documents = [
 # (source start file, name, description, authors, manual section).
 man_pages = [
     ('index', 'NorthAtlanticBloom', u'NorthAtlanticBloom Documentation',
-     [u"iury simoes-sousa[D[D[D[D[D[D[D[D[D[D[D[D[D T.[2~ simoesd-sousa"], 1)
+     [u"iury simoes-sousa"], 1)
 ]
 
 # If true, show URL addresses after external links.
@@ -230,8 +230,8 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     ('index', 'NorthAtlanticBloom', u'NorthAtlanticBloom Documentation',
-     u"iury simoes-sousa[D[D[D[D[D[D[D[D[D[D[D[D[D T.[2~ simoesd-sousa", 'NorthAtlanticBloom',
-     'UndeiInvestigating the erole of vertical nitrate flux on phytoplankton bloom.', 'Miscellaneous'),
+     u"iury simoes-sousa", 'NorthAtlanticBloom',
+     'Investigating the role of vertical nitrate flux on phytoplankton bloom.', 'Miscellaneous'),
 ]
 
 # Documents to append as an appendix to all manuals.
