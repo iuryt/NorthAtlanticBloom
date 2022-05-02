@@ -3,7 +3,7 @@ North Atlantic Bloom
 
 Investigating the role of vertical nitrate flux on phytoplankton bloom.
 
-Running:
+Running order (add later to a `MakeFile`):
    - `src/models/01-initial_conditions.py`
    - `models/01-submesoscale.py`
    - `src/models/02-initial_conditions_coarse.py`
