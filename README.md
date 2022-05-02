@@ -52,8 +52,8 @@ Project Organization
         ├── 02-analysis
         │   └── 01-analysis.py                      <- analyze the model output and generate processed data        
         │
-        └── visualization  <- Scripts to create exploratory and results oriented visualizations
-            └── visualize.py
+        └── 03-visualization  <- Scripts to create exploratory and results oriented visualizations
+            └── 01-visualize.py
 
 
 --------
