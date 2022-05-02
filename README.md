@@ -23,12 +23,6 @@ Project Organization
     │
     ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
     │
-    ├── models             <- submesoscale and coarse-resolution Oceananigans simulations
-    │   │
-    │   ├── 01-submesoscale.jl  <- fine-scale submesoscale simulation
-    │   ├── 02-coarse_no_mle.jl <- coarse-resolution simulation with no MLE parameterization
-    │   └── 03-coarse_mle.jl    <- coarse-resolution simulation with MLE parameterization
-    │
     ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
     │                         the creator's initials, and a short `-` delimited description, e.g.
     │                         `1.0-jqp-initial-data-exploration`.
