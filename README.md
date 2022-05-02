@@ -4,11 +4,11 @@ North Atlantic Bloom
 Investigating the role of vertical nitrate flux on phytoplankton bloom.
 
 Running order (add later to a `MakeFile`):
-   - `src/models/01-initial_conditions.py`
-   - `models/01-submesoscale.py`
-   - `src/models/02-initial_conditions_coarse.py`
-   - `models/02-coarse_no_mle.py`
-   - `models/03-coarse_mle.py`
+   - `src/01-models/01-initial_conditions.py`
+   - `src/01-models/02-submesoscale.py`
+   - `src/01-models/03-initial_conditions_coarse.py`
+   - `src/01-models/04-coarse_no_mle.py`
+   - `src/01-models/05-coarse_mle.py`
 
 Project Organization
 ------------
@@ -42,13 +42,17 @@ Project Organization
     │
     └── src                <- Source code for use in this project.
         │
-        ├── models         <- Scripts to train models and then use trained models to make
-        │   │                 predictions
-        │   ├── 01-initial_conditions.py            <- fine-scale submesoscale simulation
-        │   ├── 02-initial_conditions_coarse.py     <- coarse-resolution simulation with no MLE parameterization
-        │   ├── 03-analysis.py                      <- analyze the model output and generate processed data        
+        ├── 01-model
+        │   │                 
+        │   ├── 01-initial_conditions.py            <- initial conditions for the fine-scale submesoscale simulation
+        │   ├── 02-submesoscale.jl                  <- fine-scale submesoscale simulation
+        │   ├── 03-initial_conditions_coarse.py     <- initial conditions for the coarse-resolution simulations
+        │   ├── 04-coarse_no_mle.jl                 <- coarse-resolution simulation with no MLE parameterization
+        │   ├── 05-coarse_mle.jl                    <- coarse-resolution simulation with MLE parameterization
         │   └── cumulative_vertical_integration.jl  <- function used for initial geostrophic velocities
-        │
+        │   
+        ├── 02-analysis
+        │   └── 01-analysis.py                      <- analyze the model output and generate processed data        
         │
         └── visualization  <- Scripts to create exploratory and results oriented visualizations
             └── visualize.py
