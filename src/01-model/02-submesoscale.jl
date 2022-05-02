@@ -90,7 +90,7 @@ uz = compute!(Field(uz_op))
 vz = compute!(Field(vz_op))
 
 # include function for cumulative integration
-include("../src/models/cumulative_vertical_integration.jl")
+include("cumulative_vertical_integration.jl")
 
 # compute geostrophic velocities
 U = cumulative_vertical_integration!(uz)
@@ -116,7 +116,7 @@ simulation.callbacks[:compute_mld] = Callback(compute_mixed_layer_depth!)
 
 
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, (; h,)), filename = "../data/raw/output_submesoscale.nc",
+    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, (; h,)), filename = "../../data/raw/output_submesoscale.nc",
                      schedule=TimeInterval(8hours))
 
 

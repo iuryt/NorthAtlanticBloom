@@ -4,7 +4,7 @@ using Oceananigans.Units
 using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_regions!
 
 using NCDatasets
-ds = Dataset("data/input_coarsened.nc")
+ds = Dataset("../../data/interim/input_coarse.nc")
 const Nx, Ny, Nz = size(ds["b"])
 
 
@@ -81,7 +81,7 @@ uz = compute!(Field(uz_op))
 vz = compute!(Field(vz_op))
 
 # include function for cumulative integration
-include("src/cumulative_vertical_integration.jl")
+include("cumulative_vertical_integration.jl")
 
 # compute geostrophic velocities
 uᵢ = cumulative_vertical_integration!(uz)
@@ -241,7 +241,7 @@ outputs = merge(model.velocities, model.tracers, (; u_mle=u_mle, v_mle=v_mle, w_
                                                     ∂b∂x, ∂b∂y, Ψx, Ψy)) # make a NamedTuple with all outputs
 
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, outputs, filename = "data/output_coarsened_mle.nc",
+    NetCDFOutputWriter(model, outputs, filename = "../../data/raw/output_coarse_mle.nc",
                      schedule=TimeInterval(8hours))
 
 
