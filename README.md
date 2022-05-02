@@ -29,7 +29,6 @@ Project Organization
     │   ├── 02-coarse_no_mle.jl <- coarse-resolution simulation with no MLE parameterization
     │   └── 03-coarse_mle.jl    <- coarse-resolution simulation with MLE parameterization
     │
-    │
     ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
     │                         the creator's initials, and a short `-` delimited description, e.g.
     │                         `1.0-jqp-initial-data-exploration`.
@@ -38,7 +37,6 @@ Project Organization
     │
     ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
     │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
     │
     └── src                <- Source code for use in this project.
         │
