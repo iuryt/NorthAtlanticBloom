@@ -6,7 +6,7 @@ using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_
 using NCDatasets
 ds = Dataset("../../data/interim/input_coarse.nc")
 const Nx, Ny, Nz = size(ds["b"])
-
+const initial_time = ds["time"][1]
 
 grid = RectilinearGrid(GPU(),
     size=(Nx, Ny, Nz),
@@ -30,12 +30,25 @@ u_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_u)
 v_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_v)
 
 
-@inline νh(x,y,z,t) = ifelse((y>-((Ny*10-50)/2)kilometers)&(y<((Ny*10-50)/2)kilometers), 10, 200)
-horizontal_closure = HorizontalScalarDiffusivity(ν=νh, κ=νh)
+horizontal_closure = HorizontalScalarDiffusivity(ν=10, κ=10)
+vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
 
-@inline νz(x,y,z,t) = ifelse((y>-((Ny*10-50)/2)kilometers)&(y<((Ny*10-50)/2)kilometers), 1e-5, 1e-4)
-vertical_closure = ScalarDiffusivity(ν=νz, κ=νz)
 
+# ----
+# ---- sponges
+
+const sponge_size = 100kilometers
+const slope = 10kilometers
+const ymin = minimum(ynodes(Center, grid))
+const ymax = maximum(ynodes(Center, grid))
+
+
+mask_func(x,y,z) = ((
+     tanh((y-(ymax-sponge_size))/slope)
+    *tanh((y-(ymin+sponge_size))/slope)
+)+1)/2
+
+mom_sponge = Relaxation(rate=1/1hour, mask=mask_func, target=0)
 
 # ---- 
 # ---- initial mixed-layer eddy velocities
@@ -47,9 +60,10 @@ model = NonhydrostaticModel(grid = grid,
                             closure=(horizontal_closure,vertical_closure),
                             tracers = (:b),
                             buoyancy = BuoyancyTracer(),
+                            forcing = (; u=mom_sponge, v=mom_sponge, w=mom_sponge),
                             boundary_conditions = (u=u_bcs, v=v_bcs))
 
-
+model.clock.time = initial_time*days
 
 bᵢ = Float64.(ds["b"][:])
 
