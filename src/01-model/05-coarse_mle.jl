@@ -6,9 +6,9 @@ using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_
 using NCDatasets
 ds = Dataset("../../data/interim/input_coarse.nc")
 const Nx, Ny, Nz = size(ds["b"])
+const initial_time = ds["time"][1]
 
-
-grid = RectilinearGrid(CPU(),
+grid = RectilinearGrid(GPU(),
     size=(Nx, Ny, Nz),
     x=(minimum(ds["xC"]), maximum(ds["xC"])),
     y=(minimum(ds["yC"]), maximum(ds["yC"])),
@@ -30,12 +30,25 @@ u_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_u)
 v_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_v)
 
 
-@inline νh(x,y,z,t) = ifelse((y>-((Ny*10-20)/2)kilometers)&(y<((Ny*10-20)/2)kilometers), 10, 200)
-horizontal_closure = HorizontalScalarDiffusivity(ν=νh, κ=νh)
+horizontal_closure = HorizontalScalarDiffusivity(ν=10, κ=10)
+vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
 
-@inline νz(x,y,z,t) = ifelse((y>-((Ny*10-20)/2)kilometers)&(y<((Ny*10-20)/2)kilometers), 1e-5, 1e-4)
-vertical_closure = ScalarDiffusivity(ν=νz, κ=νz)
 
+# ----
+# ---- sponges
+
+const sponge_size = 100kilometers
+const slope = 10kilometers
+const ymin = minimum(ynodes(Center, grid))
+const ymax = maximum(ynodes(Center, grid))
+
+
+mask_func(x,y,z) = ((
+     tanh((y-(ymax-sponge_size))/slope)
+    *tanh((y-(ymin+sponge_size))/slope)
+)+1)/2
+
+mom_sponge = Relaxation(rate=1/1hour, mask=mask_func, target=0)
 
 # ---- 
 # ---- initial mixed-layer eddy velocities
@@ -60,10 +73,10 @@ model = NonhydrostaticModel(grid = grid,
                             closure=(horizontal_closure,vertical_closure),
                             tracers = (:b),
                             buoyancy = BuoyancyTracer(),
-                            forcing = (; b = mle_forcing),
+                            forcing = (; b = mle_forcing, u=mom_sponge, v=mom_sponge, w=mom_sponge),
                             boundary_conditions = (u=u_bcs, v=v_bcs))
 
-
+model.clock.time = initial_time*days
 
 bᵢ = Float64.(ds["b"][:])
 
@@ -102,6 +115,8 @@ h = Field{Center, Center, Nothing}(grid)
 const g = 9.82 # gravity
 const ρₒ = 1026 # reference density
 const Δb = (g/ρₒ) * 0.03
+
+
 compute_mixed_layer_depth!(simulation) = MixedLayerDepth!(h, simulation.model.tracers.b, Δb)
 # add the function to the callbacks of the simulation
 simulation.callbacks[:compute_mld] = Callback(compute_mixed_layer_depth!)
@@ -127,87 +142,15 @@ simulation.callbacks[:compute_∇b] = Callback(compute_∇b!)
 # ----
 # ---- compute Ψₑ
 
-# repeating the imports just to make it easier while moduling it
-using KernelAbstractions: @index, @kernel
-using KernelAbstractions.Extras.LoopInfo: @unroll
-using Oceananigans.Architectures: device_event, architecture
-using Oceananigans.Utils: launch!
-using Oceananigans.Grids
-using Oceananigans.Operators: Δzᶜᶜᶜ, Δzᶜᶜᶠ
-
-
-@kernel function _compute_Ψₑ!(Ψₑ, grid, h, ∂ₕb, ∂b∂z, μ, f, ce, Lfₘ, ΔS, τ, minpoints, Vm)
-    i, j = @index(Global, NTuple)
-
-    
-    # average ∇ₕb and N over the mixed layer
-    
-    ∂ₕb_sum = 0
-    N_sum = 0
-    Δz_sum = 0
-
-    h_ij = @inbounds h[i, j]
-    
-    # number of z points in the mixed layer
-    npoints = 0
-    
-    @unroll for k in grid.Nz : -1 : 1 # scroll from surface to bottom       
-        z_center = znode(Center(), Face(), Face(), i, j, k, grid)
-
-        if z_center > -h_ij
-            npoints += 1
-            
-            Δz_ijk = Δzᶜᶜᶜ(i, j, k, grid)
-
-            ∂ₕb_sum = ∂ₕb_sum + @inbounds ∂ₕb[i, j, k] * Δz_ijk
-            N_sum = N_sum + @inbounds sqrt(max(zero(eltype(grid)), ∂b∂z[i, j, k])) * Δz_ijk 
-            Δz_sum = Δz_sum + Δz_ijk
-
-        end
-    end
-
-    ∂ₕbₘₗ = ∂ₕb_sum/Δz_sum
-    Nₘₗ = N_sum/Δz_sum
-    
-    Lf = max(Nₘₗ*h_ij/abs(f), Lfₘ)
-    
-    # compute eddy stream function
-    @unroll for k in grid.Nz : -1 : 1 # scroll to point just above the bottom       
-        z_face = znode(Center(), Center(), Face(), i, j, k, grid)
-        
-        Ψ_max = @inbounds Δzᶜᶜᶠ(i, j, k, grid) * Vm
-        Ψ_ijk = ce * (ΔS/Lf) * ((h_ij^2)/sqrt(f^2 + τ^-2)) * μ(z_face,h_ij) * ∂ₕbₘₗ
-        
-        if (z_face > -h_ij) & (npoints > minpoints)
-            @inbounds Ψₑ[i, j, k] = min(Ψ_max, Ψ_ijk)
-        else
-            @inbounds Ψₑ[i, j, k] = 0.0
-        end
-    end
-
-end
-
-function compute_Ψₑ!(Ψₑ, h, ∂ₕb, ∂b∂z, μ, f; ce = 0.06, Lfₘ = 500meters, ΔS=10kilometers, τ=86400, minpoints=4, Vm=0.5)
-    grid = h.grid
-    arch = architecture(grid)
-
-
-    event = launch!(arch, grid, :xy,
-                    _compute_Ψₑ!, Ψₑ, grid, h, ∂ₕb, ∂b∂z, μ, f, ce, Lfₘ, ΔS, τ, minpoints, Vm,
-                    dependencies = device_event(arch))
-
-    wait(device_event(arch), event)
-    
-    fill_halo_regions!(Ψₑ, arch)
-    return nothing
-end
-
 # create field for each component of Ψ
 Ψx = Field{Center, Face, Face}(grid)
 Ψy = Field{Face, Center, Face}(grid)
 
 # structure function
 @inline μ(z,h) = (1-(2*z/h + 1)^2)*(1+(5/21)*(2*z/h + 1)^2)
+
+# import functions for mle_parameterization
+include("mle_parameterization.jl")
 
 # create a function for each component
 compute_Ψx!(simulation) = compute_Ψₑ!(Ψx, @at((Center, Face, Nothing), h), ∂b∂y, ∂b∂z, μ, model.coriolis.f)
@@ -244,18 +187,18 @@ simulation.output_writers[:fields] =
     NetCDFOutputWriter(model, outputs, filename = "../../data/raw/output_coarse_mle.nc",
                      schedule=TimeInterval(8hours))
 
-
 using Printf
 
 function print_progress(simulation)
     u, v, w = simulation.model.velocities
 
     # Print a progress message
-    msg = @sprintf("i: %04d, t: %s, Δt: %s, umax = (%.1e, %.1e, %.1e) ms⁻¹, wall time: %s\n",
+    msg = @sprintf("i: %04d, t: %s, Δt: %s, umax = (%.1e, %.1e, %.1e) ms⁻¹, Ψmax = (%.1e, %.1e), wall time: %s\n",
                    iteration(simulation),
                    prettytime(time(simulation)),
                    prettytime(simulation.Δt),
                    maximum(abs, u), maximum(abs, v), maximum(abs, w),
+                   maximum(abs, Ψx), maximum(abs, Ψy),
                    prettytime(simulation.run_wall_time))
 
     @info msg
