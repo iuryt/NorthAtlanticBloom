@@ -14,6 +14,8 @@ from tqdm import tqdm
 BOX = [-45, -15, 55, 65]
 month = 2
 
+# ----
+# ---- Chlorophyll
 
 fnames = glob("../../data/external/bioargo/*")
 
@@ -31,105 +33,48 @@ for fname in fnames:
         dsi = dsi.assign_coords(POINT=np.arange(pmin,pmin+dsi.POINT.size))
         ds.append(dsi)
         pmin += dsi.POINT.size
-ds = xr.concat(ds,"POINT")
+chla = xr.concat(ds,"POINT")
 
-dc = 0.01
-h_chla = histogram(-ds.PRES, ds.CPHL_ADJUSTED, bins=[np.arange(-1000,0+10,10), np.arange(-0.1-dc/2,0.3,dc)])
-cdf_chla = h_chla.cumsum("CPHL_ADJUSTED_bin")/h_chla.sum("CPHL_ADJUSTED_bin")
-cdf_chla = cdf_chla.assign_coords(CPHL_ADJUSTED_bin=cdf_chla.CPHL_ADJUSTED_bin+dc/2)
+chla.to_netcdf("../../data/interim/bioargo_north_atlantic.nc")
 
-h_chla.plot(robust=True)
-cdf_chla.plot.contour(levels=[0.5], colors=["red"])
+# ----
+# ---- Nitrate
+
+base = "https://www.ncei.noaa.gov/thredds-ocean/dodsC/ncei/woa"
+no3 = xr.open_dataset(f"{base}/nitrate/all/1.00/woa18_all_n{month:02d}_01.nc", decode_times=False)
+no3_p = no3.n_an.sel(lon=slice(BOX[0],BOX[1]), lat=slice(BOX[2],BOX[3])).squeeze().stack(profile=["lon", "lat"])
+no3_p = no3_p.assign_coords(profile=np.arange(no3_p.profile.size)).drop("time")
+
+no3_p.to_netcdf("../../data/interim/woa18_north_atlantic.nc")
+
 
 # ----
 # ---- Buoyancy
 
-src = "gdac" #"erddap" "argovis"
-argo = ArgoDataFetcher(src=src, parallel=True).region([*BOX, 0, 1000, '2010-01', '2020-12']).to_xarray()
+src = "argovis" #"erddap" "argovis" "gdac"
+argo = ArgoDataFetcher(src=src, progress=True).region([*BOX, 0, 1000, '2010-01', '2020-12']).to_xarray()
 argo = argo.argo.point2profile().argo.interp_std_levels(np.arange(0,1000))
 
-argom = argo.groupby("TIME.month").mean("N_PROF").sel(month=month) #FEB
-argom = argom.assign(PDEN=("PRES_INTERPOLATED",sw.pden(argom.PSAL,argom.TEMP,argom.PRES_INTERPOLATED)))
-argom = argom.assign(B=-(9.82/1025)*argom.PDEN)
-argom = argom.rolling(PRES_INTERPOLATED=50,min_periods=1).mean()
+argo = argo.where(argo.TIME.dt.month==month,drop=True)
 
-fig, ax = plt.subplots()
-(argom.PDEN-argom.PDEN.sel(PRES_INTERPOLATED=0, method="nearest")).plot(ax=ax, y="PRES_INTERPOLATED", ylim=[1000,0])
-ax.axvline(0.03, color="red")
+PRES = (argo.PRES_INTERPOLATED*xr.ones_like(argo.TEMP)).T
+argo = argo.assign(PDEN=(("N_PROF", "PRES_INTERPOLATED"),sw.pden(argo.PSAL.values,argo.TEMP.values,PRES.values)))
+argo = argo.assign(B=-(9.82/1025)*argom.PDEN)
 
-argom.to_netcdf("../../data/interim/argo_north_atlantic.nc")
+argo.to_netcdf("../../data/interim/argo_north_atlantic.nc")
 
 
 
-# ----
-# ---- Nitrate
-base = "https://www.ncei.noaa.gov/thredds-ocean/dodsC/ncei/woa"
-no3 = xr.open_dataset(f"{base}/nitrate/all/1.00/woa18_all_n{month:02d}_01.nc", decode_times=False)
-no3_m = no3.n_an.sel(lon=slice(BOX[0],BOX[1]), lat=slice(BOX[2],BOX[3])).squeeze().stack(profile=["lon", "lat"])
-no3_m = no3_m.assign_coords(profile=np.arange(no3_m.profile.size))
+# https://psl.noaa.gov/data/gridded/data.ncep.reanalysis.derived.surfaceflux.html
+shortwave = xr.open_dataset("../../data/external/dswrf_sfc_mon_mean.nc")
+shortwave = shortwave.assign(lon=(((shortwave.lon + 180) % 360) - 180)).sortby("lon")
+
+shortwave_month = shortwave.sel(lon=np.mean(BOX[:2]), lat=np.mean(BOX[2:]), method="nearest").dswrf.groupby("time.month").mean()
+shortwave_yearday = shortwave_month.assign_coords(month=np.linspace(0,365,12)).rename(month="yearday")
+
+shortwave_yearday.to_netcdf("../../data/interim/shortwave_north_atlantic.nc")
 
 
-
-# ----
-# ---- Chlorophyll
-
-lons, lats = [], []
-months = []
-fnames = []
-dates = []
-for fname in tqdm(glob("../../data/external/Dossier_cal_netcdf/*")):
-    try:
-        ds = xr.open_dataset(fname)
-        datei = ds.DATE.values
-        
-        if datei<19000000:
-            datei += 19000000
-        
-        monthi = int(str(datei)[5:7])
-        loni, lati = ds.LON.values, ds.LAT.values
-        
-        dates.append(datei)
-        months.append(monthi)
-        lons.append(loni)
-        lats.append(lati)
-
-        if (monthi==month)&(loni>BOX[0])&(loni<BOX[1])&(lati>BOX[2])&(lati<BOX[3]):
-            fnames.append(fname)
-    except:
-        pass
-    
-lons = np.hstack(lons)
-lats = np.hstack(lats)
-months = np.hstack(months)
-dates = np.hstack(dates)
-
-for mo in range(1, 13):
-    fig, ax = plt.subplots()
-    ax.scatter(lons[months==mo], lats[months==mo])
-    ax.plot(
-        np.array(BOX)[[0,1,1,0,0]],
-        np.array(BOX)[[2,2,3,3,2]],
-        color="red"
-    )
-    di = 20
-    ax.set(
-        xlim=[BOX[0]-di, BOX[1]+di],
-        ylim=[BOX[2]-di, BOX[3]+di],
-        title=mo
-    )
-
-profiles = xr.open_mfdataset(fnames, concat_dim="FILE_NUMBER", combine="nested")
-profiles = profiles.assign_coords(FILE_NUMBER=np.arange(profiles.FILE_NUMBER.size))#.sel(N_DEPTH=slice(0,1000))
-
-fig, ax = plt.subplots()
-plt.scatter(np.abs(profiles.CHLA), -profiles.DEPTH,s=0.1)
-ax.set(
-    ylim=[-1000, 0],
-    xlim=[0,1],
-)
-
-
-# h_no3 = histogram(-profiles.DEPTH, profiles.CHLA, bins=[np.arange(-1000,0+1), np.arange(0,0.5,0.01)])
 
 
 
