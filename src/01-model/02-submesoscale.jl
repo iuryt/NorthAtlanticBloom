@@ -1,24 +1,31 @@
 using Bioceananigans
 using Oceananigans
 using Oceananigans.Units
+using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition
+using KernelAbstractions.Extras.LoopInfo: @unroll
 
-const sponge = 50 #number of points for sponge
+#--------------- Grid
+
 const Nx = 100 # number of points in x
-const Ny = 460 # number of points in y
+const Ny = 480 # number of points in y
 const Nz = 48 # number of points in z
 const H = 1000 # maximum depth
 
 
 grid = RectilinearGrid(GPU(),
-    size=(Nx,Ny+2sponge,Nz),
+    size=(Nx,Ny,Nz),
     halo=(3,3,3),
     x=(-(Nx/2)kilometers, (Nx/2)kilometers), 
-    y=(-(Ny/2 + sponge)kilometers, (Ny/2 + sponge)kilometers), 
+    y=(-(Ny/2)kilometers, (Ny/2)kilometers), 
     z=(H * cos.(LinRange(π/2,0,Nz+1)) .- H)meters,
     topology=(Periodic, Bounded, Bounded)
 )
 
+#--------------- Coriolis
+
 coriolis = FPlane(latitude=60)
+
+#--------------- Bottom drag
 
 cᴰ = 1e-4 # quadratic drag coefficient
 
@@ -32,32 +39,113 @@ u_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_u)
 v_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_v)
 
 
-@inline νh(x,y,z,t) = ifelse((y>-(Ny/2)kilometers)&(y<(Ny/2)kilometers), 1, 120)
-horizontal_closure = HorizontalScalarDiffusivity(ν=νh, κ=νh)
+#--------------- Sponges
 
-@inline νz(x,y,z,t) = ifelse((y>-(Ny/2)kilometers)&(y<(Ny/2)kilometers), 1e-5, 1e-4)
-vertical_closure = ScalarDiffusivity(ν=νz, κ=νz)
+const sponge_size = 50kilometers
+const slope = 10kilometers
+const ymin = minimum(ynodes(Center, grid))
+const ymax = maximum(ynodes(Center, grid))
+
+@inline mask_func(x,y,z) = ((
+     tanh((y-(ymax-sponge_size))/slope)
+    *tanh((y-(ymin+sponge_size))/slope)
+)+1)/2
+
+mom_sponge = Relaxation(rate=1/1hour, mask=mask_func, target=0)
+
+horizontal_closure = HorizontalScalarDiffusivity(ν=1, κ=1)
+vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
+
+# @inline horizontal_closure_func(x,y,z,t) = 1 + mask_func(x,y,z) * (120 - 1)
+# @inline vertical_closure_func(x,y,z,t) = 1e-5 + mask_func(x,y,z) * (1e-4 - 1e-5)
+
+# horizontal_closure = HorizontalScalarDiffusivity(ν=horizontal_closure_func, κ=horizontal_closure_func)
+# vertical_closure = ScalarDiffusivity(ν=vertical_closure_func, κ=vertical_closure_func)
 
 
-growing_and_grazing(x, y, z, t, P, params) = (params.μ₀ * exp(z / params.λ) - params.m) * P
-plankton_dynamics_parameters = (μ₀ = 1/day,   # surface growth rate
-                                 λ = 5,       # sunlight attenuation length scale (m)
-                                 m = 0.1/day) # mortality rate due to virus and zooplankton grazing
+#--------------- NP Model
 
-plankton_dynamics = Forcing(growing_and_grazing, field_dependencies = :P,
-                            parameters = plankton_dynamics_parameters)
+# constants for the NP model
+const μ₀ = 1/day   # surface growth rate
+const m = 0.015/day # mortality rate due to virus and zooplankton grazing
+const Kw = 0.059 # meter^-1
+const kn = 0.75
+const kr = 0.5
+
+#  https://doi.org/10.1029/2017GB005850
+const chl2c = 0.06 # average value for winter in North Atlantic
+
+const α = 0.0538/day
+
+const average = :growth
+const shading = true
+
+# create the mld field that will be updated at every timestep
+h = Field{Center, Center, Nothing}(grid) 
+light_growth = Field{Center, Center, Center}(grid)
 
 
-    
+# time evolution of shortwave radiation (North Atlantic)
+@inline Lₒ(t) = 116 * sin( 2π * ( t / days + 50 ) / 375.3 - 1.3 ) + 132.3
+# evolution of the available light at the surface
+@inline light_function(t, z) = 0.43 * Lₒ(t) * exp( z * Kw )
+# light profile
+@inline light_growth_function(light) = μ₀ * ( light * α ) / sqrt( μ₀^2 + ( light * α )^2 )
+
+
+# nitrate and ammonium limiting
+@inline N_lim(N, Nr) = (N/(N+kn)) * (kr/(Nr+kr))
+@inline Nr_lim(Nr) =  (Nr/(Nr+kr))
+
+# functions for the NP model
+@inline P_forcing(light_growth, P, N, Nr)  =   light_growth * (N_lim(N, Nr) + Nr_lim(Nr)) * P - m * P^2
+@inline N_forcing(light_growth, P, N, Nr)  = - light_growth * N_lim(N, Nr) * P
+@inline Nr_forcing(light_growth, P, N, Nr) = - light_growth * Nr_lim(Nr) * P + m * P^2
+
+# functions for the NP model
+@inline P_forcing(i, j, k, grid, clock, fields, p)  = @inbounds P_forcing(p.light_growth[i, j, k], fields.P[i, j, k], fields.N[i, j, k], fields.Nr[i, j, k])
+@inline N_forcing(i, j, k, grid, clock, fields, p)  = @inbounds N_forcing(p.light_growth[i, j, k], fields.P[i, j, k], fields.N[i, j, k], fields.Nr[i, j, k])
+@inline Nr_forcing(i, j, k, grid, clock, fields, p) = @inbounds Nr_forcing(p.light_growth[i, j, k], fields.P[i, j, k], fields.N[i, j, k], fields.Nr[i, j, k])
+
+# using the functions to determine the forcing
+P_dynamics = Forcing(P_forcing, discrete_form=true, parameters=(; light_growth))
+N_dynamics = Forcing(N_forcing, discrete_form=true, parameters=(; light_growth))
+Nr_dynamics = Forcing(Nr_forcing, discrete_form=true, parameters=(; light_growth))
+
+# sinking velocity
+
+# Vertical velocity function
+const w_sink = -6e-6 #m/s
+const lamb = 1meters
+@inline w_func(x, y, z) = w_sink * tanh(max(-z / lamb, 0.0)) * tanh(max((z + H) / lamb, 0.0))
+
+no_penetration = ImpenetrableBoundaryCondition()
+w_bc = FieldBoundaryConditions(grid, (Center, Center, Face), top=no_penetration, bottom=no_penetration)
+
+# Field (allocates memory and precalculates w_func)
+w = Field((Center, Center, Face), grid, boundary_conditions=w_bc)
+set!(w, w_func)
+P_sink = AdvectiveForcing(WENO5(; grid), w = w)
+
+
+#--------------- Instantiate Model
+
+forcing = (;
+    P=(P_dynamics, P_sink), N=N_dynamics, Nr=Nr_dynamics,
+    u=mom_sponge, v=mom_sponge, w=mom_sponge,
+)
+
 model = NonhydrostaticModel(grid = grid,
-                            advection = UpwindBiasedFifthOrder(),
+                            advection = WENO5(),
                             coriolis = coriolis,
-                            closure=(horizontal_closure,vertical_closure),
-                            tracers = (:b),
+                            closure = (horizontal_closure,vertical_closure),
+                            tracers = (:b, :P, :N, :Nr),
                             buoyancy = BuoyancyTracer(),
+                            forcing = forcing,
                             boundary_conditions = (u=u_bcs, v=v_bcs))
 
 
+#--------------- Initial Conditions
 
 const L = (Nx-1)kilometers/10
 const amp = 1kilometers
@@ -65,19 +153,29 @@ const g = 9.82
 const ρₒ = 1026
 
 # background density profile based on Argo data
-@inline bg(z) = 0.08*tanh(0.005*(-618-z))+0.014*(z^2)/1e5+1027.45
+@inline bg(z) = -0.147 * tanh( 2.6 * ( z + 623 ) ) - 1027.6
 
 # decay function for fronts
-@inline decay(z) = (tanh((z+500)/300)+1)/2
+@inline decay(z) = ( tanh( (z + 500) / 300) + 1 ) / 2
 
 # front function
-@inline front(x, y, z, cy) = tanh((y-(cy+sin(2π * x / L)*amp))/12kilometers)
+@inline front(x, y, z, cy) = tanh( ( y - ( cy + sin(2π * x / L) * amp ) ) / 12kilometers )
 
-@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x, y, z, -120kilometers)+front(x, y, z, 0)+front(x, y, z, 120kilometers))-3)/6
+@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x, y, z, -100kilometers)+front(x, y, z, 0)+front(x, y, z, 100kilometers))-3)/6
 @inline B(x, y, z) = -(g/ρₒ)*D(x, y, z)
 
-set!(model; b = B)
+# initial phytoplankton profile
+@inline P(x, y, z) = 0.1 * ( tanh( 0.01 * (z + 300)) + 1) / 2
 
+# initial nitrate profile
+@inline N(x, y, z) = z * (12 - 16) / (0 + 800) + 12
+
+# setting the initial conditions
+set!(model; b=B, P=P, N=N, Nr=0)
+
+
+
+#--------------- Initial Geostrophic Velocities
 
 b = model.tracers.b
 f = model.coriolis.f
@@ -100,12 +198,14 @@ V = cumulative_vertical_integration!(vz)
 set!(model; u = U, v = V)
 
 
+#--------------- Simulation
+
 simulation = Simulation(model, Δt = 1minutes, stop_time = 90day)
 
 wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=6minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
-
+#--------------- Mixed Layer Depth
 
 h = Field{Center, Center, Nothing}(grid) 
 # buoyancy decrease criterium for determining the mixed-layer depth
@@ -114,11 +214,32 @@ compute_mixed_layer_depth!(simulation) = MixedLayerDepth!(h, simulation.model.tr
 # add the function to the callbacks of the simulation
 simulation.callbacks[:compute_mld] = Callback(compute_mixed_layer_depth!)
 
+#--------------- Light-limiting growth
 
+compute_light_growth!(simulation) = LightGrowth!(light_growth, h, simulation.model.tracers.P, light_function, light_growth_function, time(simulation), average, shading, chl2c)
+# add the function to the callbacks of the simulation
+simulation.callbacks[:compute_light_growth] = Callback(compute_light_growth!)
+
+#--------------- Zeroing negative values
+
+# zeroing negative values
+@inline function zeroing(sim)
+    @unroll for tracer in [:P, :N, :Nr]
+        parent(sim.model.tracers[tracer]) .= max.(0, parent(sim.model.tracers[tracer]))
+    end
+end
+simulation.callbacks[:zeroing] = Callback(zeroing)
+
+#--------------- Writing Outputs
+
+bi, Pi, Ni, Nri = simulation.model.tracers
+
+extra_outputs = (; h=h, light_growth=light_growth, new_production=light_growth * N_lim(Ni, Nri) * Pi)
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, (; h,)), filename = "../../data/raw/output_submesoscale.nc",
+    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, extra_outputs), filename = "../../data/raw/output_submesoscale.nc",
                      schedule=TimeInterval(8hours))
 
+#--------------- Printing Progress
 
 using Printf
 
@@ -138,6 +259,6 @@ function print_progress(simulation)
     return nothing
 end
 
-simulation.callbacks[:progress] = Callback(print_progress, TimeInterval(1hour))
+simulation.callbacks[:progress] = Callback(print_progress, TimeInterval(12hour))
 
 run!(simulation)
