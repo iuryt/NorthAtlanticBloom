@@ -7,7 +7,7 @@ using KernelAbstractions.Extras.LoopInfo: @unroll
 #--------------- Grid
 
 const Nx = 100 # number of points in x
-const Ny = 480 # number of points in y
+const Ny = 500 # number of points in y
 const Nz = 48 # number of points in z
 const H = 1000 # maximum depth
 
@@ -115,7 +115,7 @@ Nr_dynamics = Forcing(Nr_forcing, discrete_form=true, parameters=(; light_growth
 # sinking velocity
 
 # Vertical velocity function
-const w_sink = -6e-6 #m/s
+const w_sink = -1meter/day
 const lamb = 1meters
 @inline w_func(x, y, z) = w_sink * tanh(max(-z / lamb, 0.0)) * tanh(max((z + H) / lamb, 0.0))
 
