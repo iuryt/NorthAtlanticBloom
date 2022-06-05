@@ -7,7 +7,7 @@ ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
 days = 12
 new_resolution_km = 10 
 
-dsi = ds.sel(time=days, method="nearest").interp(xF=ds.xC, yF=ds.yC)
+dsi = ds.sel(time=days, method="nearest")#.interp(xF=ds.xC, yF=ds.yC)
 
 
 dsi_periodic = xr.concat([
@@ -17,6 +17,10 @@ dsi_periodic = xr.concat([
 ],"xC")
 
 
-dsm = dsi_periodic.coarsen({dim:new_resolution_km for dim in ["xC", "yC"]}, boundary="trim").mean()
+dsm = dsi_periodic.coarsen({dim:new_resolution_km for dim in ["xC", "yC", "xF", "yF"]}, boundary="trim").mean()
 
-dsm.sel(xC=slice(dsi.xC.min(), dsi.xC.max())).to_netcdf("../../data/interim/input_coarse.nc")
+dsm.sel(
+    xC=slice(dsi.xC.min(), dsi.xC.max()),
+    xF=slice(dsi.xF.min(), dsi.xF.max()),
+).to_netcdf("../../data/interim/input_coarse.nc")
+

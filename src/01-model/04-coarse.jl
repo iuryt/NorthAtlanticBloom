@@ -3,21 +3,30 @@ using Oceananigans
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_regions!
 
+
+mle = false
+
 #--------------- Grid
 
 using NCDatasets
 ds = Dataset("../../data/interim/input_coarse.nc")
-const Nx, Ny, Nz = size(ds["b"])
+
 const initial_time = ds["time"][1]
 const H = 1000 # maximum depth
 
+
+ 
+
+const Nx, Ny, Nz = size(ds["b"])
+
 grid = RectilinearGrid(GPU(),
     size=(Nx, Ny, Nz),
-    x=(minimum(ds["xC"]), maximum(ds["xC"])),
-    y=(minimum(ds["yC"]), maximum(ds["yC"])),
+    x=(minimum(ds["xF"]),maximum(ds["xF"])+diff(ds["xF"])[end]),
+    y=(minimum(ds["yF"]),maximum(ds["yF"])+diff(ds["yF"])[end]),
     z=ds["zF"][:],
     topology=(Periodic, Bounded, Bounded)
 )
+
 
 #--------------- Coriolis
 
@@ -106,7 +115,7 @@ Nr_dynamics = Forcing(Nr_forcing, discrete_form=true, parameters=(; light_growth
 # sinking velocity
 
 # Vertical velocity function
-const w_sink = -6e-6 #m/s
+const w_sink = -1meter/day
 const lamb = 1meters
 @inline w_func(x, y, z) = w_sink * tanh(max(-z / lamb, 0.0)) * tanh(max((z + H) / lamb, 0.0))
 
@@ -136,11 +145,20 @@ mle_forcing = AdvectiveForcing(WENO5(; grid), u = u_mle, v = v_mle, w = w_mle)
 
 #--------------- Instantiate Model
 
-forcing = (;
-    P=(P_dynamics, P_sink, mle_forcing), N=(N_dynamics, mle_forcing), 
-    Nr=(Nr_dynamics, mle_forcing), b=mle_forcing,
-    u=mom_sponge, v=mom_sponge, w=mom_sponge,
-)
+if mle
+    forcing = (;
+        P=(P_dynamics, P_sink, mle_forcing), N=(N_dynamics, mle_forcing), 
+        Nr=(Nr_dynamics, mle_forcing), b=mle_forcing,
+        u=mom_sponge, v=mom_sponge, w=mom_sponge,
+    )
+else
+    forcing = (;
+        P=(P_dynamics, P_sink), N=(N_dynamics), 
+        Nr=(Nr_dynamics),
+        u=mom_sponge, v=mom_sponge, w=mom_sponge,
+    )
+end
+
 model = NonhydrostaticModel(grid = grid,
                             advection = WENO5(),
                             coriolis = coriolis,
@@ -273,21 +291,38 @@ simulation.callbacks[:compute_mle_velocity] = Callback(compute_mle_velocity!)
 #--------------- Writing Outputs
 
 bi, Pi, Ni, Nri = simulation.model.tracers
+u, v, w = simulation.model.velocities
+
 
 extra_outputs = (; 
     h=h, 
     light_growth=light_growth, 
-    new_production=light_growth * N_lim(Ni, Nri) * Pi, 
+    new_production=light_growth * N_lim(Ni, Nri) * Pi,
+    u=@at((Center, Center, Center), u),
+    v=@at((Center, Center, Center), v),
+    w=@at((Center, Center, Center), w),
+    N2=@at((Center, Center, Center), ∂z(bi)),
+    ∇b=@at((Center, Center, Center), sqrt(∂x(bi)^2 + ∂y(bi)^2)),
+    Ro=@at((Center, Center, Center), (∂x(v)-∂y(u))/f),
     u_mle=u_mle, v_mle=v_mle, w_mle=w_mle, 
     hx=@at((Center, Face, Nothing), h), 
     hy=@at((Face, Center, Nothing), h), 
     ∂b∂x, ∂b∂y, Ψx, Ψy
 )
 
-
-simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, extra_outputs), filename = "../../data/raw/output_coarse_mle.nc",
-                     schedule=TimeInterval(8hours))
+if mle
+    simulation.output_writers[:fields] =
+        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
+                        filename = "../../data/raw/output_coarse_mle.nc",
+                        overwrite_existing=true,
+                        schedule=TimeInterval(8hours))
+else
+    simulation.output_writers[:fields] =
+        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
+                        filename = "../../data/raw/output_coarse_no_mle.nc",
+                        overwrite_existing=true,
+                        schedule=TimeInterval(8hours))
+end
 
 #--------------- Printing Progress
 

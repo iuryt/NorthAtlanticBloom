@@ -4,6 +4,8 @@ using Oceananigans.Units
 using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition
 using KernelAbstractions.Extras.LoopInfo: @unroll
 
+fronts = false
+
 #--------------- Grid
 
 const Nx = 100 # number of points in x
@@ -161,7 +163,8 @@ const ρₒ = 1026
 # front function
 @inline front(x, y, z, cy) = tanh( ( y - ( cy + sin(2π * x / L) * amp ) ) / 12kilometers )
 
-@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x, y, z, -100kilometers)+front(x, y, z, 0)+front(x, y, z, 100kilometers))-3)/6
+
+@inline D(x, y, z) = bg(z) + fronts*0.8*decay(z)*((front(x, y, z, -100kilometers)+front(x, y, z, 0)+front(x, y, z, 100kilometers))-3)/6
 @inline B(x, y, z) = -(g/ρₒ)*D(x, y, z)
 
 # initial phytoplankton profile
@@ -202,7 +205,7 @@ set!(model; u = U, v = V)
 
 simulation = Simulation(model, Δt = 1minutes, stop_time = 90day)
 
-wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=6minutes)
+wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=1hour)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #--------------- Mixed Layer Depth
@@ -233,11 +236,34 @@ simulation.callbacks[:zeroing] = Callback(zeroing)
 #--------------- Writing Outputs
 
 bi, Pi, Ni, Nri = simulation.model.tracers
+u, v, w = simulation.model.velocities
 
-extra_outputs = (; h=h, light_growth=light_growth, new_production=light_growth * N_lim(Ni, Nri) * Pi)
-simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.velocities, model.tracers, extra_outputs), filename = "../../data/raw/output_submesoscale.nc",
-                     schedule=TimeInterval(8hours))
+
+extra_outputs = (; 
+    h=h, 
+    light_growth=light_growth, 
+    new_production=light_growth * N_lim(Ni, Nri) * Pi,
+    u=@at((Center, Center, Center), u),
+    v=@at((Center, Center, Center), v),
+    w=@at((Center, Center, Center), w),
+    N2=@at((Center, Center, Center), ∂z(bi)),
+    ∇b=@at((Center, Center, Center), sqrt(∂x(bi)^2 + ∂y(bi)^2)),
+    Ro=@at((Center, Center, Center), (∂x(v)-∂y(u))/f),
+)
+
+if fronts
+    simulation.output_writers[:fields] =
+        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs),
+                         overwrite_existing=true,
+                         filename = "../../data/raw/output_submesoscale.nc",
+                         schedule=TimeInterval(8hours))
+else
+    simulation.output_writers[:fields] =
+        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs),
+                         overwrite_existing=true,
+                         filename = "../../data/raw/output_no_fronts.nc",
+                         schedule=TimeInterval(8hours))
+end
 
 #--------------- Printing Progress
 
