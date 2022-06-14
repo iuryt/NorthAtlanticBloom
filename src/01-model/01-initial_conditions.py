@@ -26,7 +26,7 @@ popt_argo[3] = np.round(popt_argo[3],1)
 
 argo = argo.assign(PDENf=("z",func_argo(argo.z.values,*popt_argo)))
 argo = argo.assign(Bf=-(9.82/1025)*argo.PDENf)
-titles["pden"] =  f"{popt_argo[0]}tanh({popt_argo[1]*1e3}(z+{-popt_argo[2]}))+{popt_argo[3]-1000:.1f}"
+titles["pden"] =  f"{popt_argo[0]}tanh({popt_argo[1]*1e3}(z+{-popt_argo[2]})/1000)+{popt_argo[3]-1000:.1f}"
 
 
 def func_shortwave(t, a, b, c, d):

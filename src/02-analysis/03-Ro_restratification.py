@@ -12,33 +12,25 @@ from cmocean import cm
 # --- Loading data
 #####
 
+
 yslice = slice(-130, 130)
 
-ds = xr.open_dataset("../../data/raw/output_submesoscale.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-submeso = ds.sel(yC=yslice)
-
-
-ds = xr.open_dataset("../../data/raw/output_coarse_mle.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-coarse = ds.sel(yC=yslice)
-
-
-
-ds = xr.open_dataset("../../data/raw/output_coarse_no_mle.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-coarse_no_mle = ds.sel(yC=yslice)
-
-
-
 data = dict(
-    submeso=dict(D=submeso, label="1 km"),
-    coarse_no_mle=dict(D=coarse_no_mle, label="10 km\n(no MLE)"),
-    coarse=dict(D=coarse, label="10 km"),
+    submesoscale = dict(label="1 km"),
+    coarse_mle = dict(label="10 km\n(MLE)"),
+    coarse_averaging = dict(label="10 km\n(averaging)")
 )
+
+sinking = True
+
+sinking_text = "" if sinking else "_nosinking"
+for k in tqdm(data):
+
+    ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}.nc").sel(time=slice(None,None,3))
+    ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
+    ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
+    data[k]["D"] = ds.sel(yC=yslice)
+
 
 
 
@@ -62,7 +54,7 @@ fig,ax = plt.subplots(2,len(data), figsize=(10,4))
 
 for col,k in enumerate(data):
     if "coarse" in k:
-        ax[0,col].axhspan(0,coarse.time.min(), facecolor="w", edgecolor="0.7", hatch="//")
+        ax[0,col].axhspan(0,60, facecolor="w", edgecolor="0.7", hatch="//")
     D = data[k]["D"]
     a = ax[0,col]
     H = histogram(D.Ro.sel(zC=slice(zmin,0)), bins=bins, dim=["xC", "yC", "zC"])
@@ -77,7 +69,7 @@ for col,k in enumerate(data):
 
     
     a = ax[1,col]
-    H = histogram(D.Ro.sel(time=ti), bins=bins, dim=["xC", "yC"])
+    H = histogram(D.Ro.sel(time=ti,method="nearest"), bins=bins, dim=["xC", "yC"])
     H = H/H.sum("Ro_bin")
     H.plot(ax=a, **kw["pdf"])
     ct = (H/H.sum("Ro_bin")).cumsum("Ro_bin").plot.contour(ax=a, **kw["cdf"])
@@ -92,7 +84,7 @@ for col,k in enumerate(data):
 letters = "a b c d".split()
 _ = [a.set(title=f"{letter})"+60*" ") for a,letter in zip(np.ravel(ax),letters)]
 
-fig.savefig("../../reports/figures/Ro_pdf.png", facecolor="w", dpi=300, bbox_inches="tight")
+fig.savefig(f"../../reports/figures/Ro_pdf{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")
 
 # --- MLD and N2
 #####
@@ -124,8 +116,7 @@ for row,k in enumerate(data):
         text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='w'),
                               path_effects.Normal()])
         
-        if k=="coarse":
-            a.axvspan(0,coarse.time.min(), facecolor="w", edgecolor="0.7", hatch="//")
+        a.axvspan(0,60, facecolor="w", edgecolor="0.7", hatch="//",zorder=0)
             
         p = "N2"
         a = ax[row,1]
@@ -139,9 +130,9 @@ for row,k in enumerate(data):
         text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='w'),
                               path_effects.Normal()])
         ax[row,1].set(ylim=[data[k]["D"].sel(zC=slice(zmin,0)).zC.min(),0])
-        if k=="coarse":
-            a.axvspan(0,coarse.time.min(), facecolor="w", edgecolor="0.7", hatch="//")
 
+        a.axvspan(0,60, facecolor="w", edgecolor="0.7", hatch="//",zorder=0)
+        
 fig.colorbar(C1, ax=ax[:,0], orientation="horizontal", label="mld [m]", ticks=[-210,-160,-110,-60,-10,0])
 fig.colorbar(C2, ax=ax[:,1], orientation="horizontal", label="N$^2$ [s$^{-1}$]")
 
@@ -151,4 +142,4 @@ fig.colorbar(C2, ax=ax[:,1], orientation="horizontal", label="N$^2$ [s$^{-1}$]")
 letters = "a b c d".split()
 _ = [a.set(title=f"{letter})"+70*" ") for a,letter in zip(np.ravel(ax),letters)]
 
-fig.savefig("../../reports/figures/mld_n2.png", facecolor="w", dpi=300, bbox_inches="tight")    
+fig.savefig(f"../../reports/figures/mld_n2{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")    

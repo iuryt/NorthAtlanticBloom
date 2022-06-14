@@ -14,28 +14,25 @@ from cmocean import cm
 
 yslice = slice(-130, 130)
 
-ds = xr.open_dataset("../../data/raw/output_submesoscale.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-submeso = ds.sel(yC=yslice)
-
-
-ds = xr.open_dataset("../../data/raw/output_coarse_mle.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-coarse = ds.sel(yC=yslice)
-
-ds = xr.open_dataset("../../data/raw/output_coarse_no_mle.nc")
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-coarse_no_mle = ds.sel(yC=yslice)
 
 
 data = dict(
-    submeso=dict(D=submeso, label="1 km"),
-    coarse_no_mle=dict(D=coarse_no_mle, label="10 km\n(no MLE)"),
-    coarse=dict(D=coarse, label="10 km"),
+    submesoscale = dict(label="1 km"),
+    coarse_mle = dict(label="10 km\n(MLE)"),
+    coarse_averaging = dict(label="10 km\n(averaging)")
 )
+
+sinking = True
+mu = 0.5
+
+sinking_text = "" if sinking else "_nosinking"
+
+for k in data:
+
+    ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}_mu{mu}.nc").isel(time=slice(None,None,3))
+    ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
+    ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
+    data[k]["D"] = ds.sel(yC=yslice)
 
 
 
@@ -79,7 +76,7 @@ for row,k in enumerate(data):
 
 [a.set(xlim=[0,60]) for a in np.ravel(ax)]
 for a in ax[1,:]:
-    a.axvspan(0,coarse.time.min(), facecolor="w", edgecolor="0.7", hatch="//")
+    a.axvspan(0,60, facecolor="w", edgecolor="0.7", hatch="//",zorder=0)
 
 [a.set(ylabel="y [km]") for a in ax[:,0]]
 [a.set(ylabel="z [m]") for a in ax[:,1]]
@@ -94,175 +91,180 @@ _ = [a.set(title=f"{letter})"+60*" ") for a,letter in zip(np.ravel(ax),letters)]
 
 fig.colorbar(C, ax=ax, shrink=0.7, label="New Production [mmol N / m$^3$ / day]")
 
-fig.savefig("../../reports/figures/new_production.png", facecolor="w", dpi=300, bbox_inches="tight")   
+fig.savefig(f"../../reports/figures/new_production{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")   
 
 
 
-zmin=-60
+zmin=-1000
 fig, ax = plt.subplots()
 for k in data:
     (
-        data[k]["D"].new_production
+        (86400*data[k]["D"].new_production).sel(time=slice(None,None,5))
         .mean(["xC","yC"]).sel(zC=slice(zmin,0)).integrate("zC")
     ).plot(ax=ax, label=data[k]["label"])
 ax.legend()
-
-
-
-
-
-
-step = 5
-bins = np.arange(-(100+step/2),100+step/2,step)
-
-nflux = (submeso.w*submeso.N*86400).sel(zC=slice(-100,0))
-nflux.name = "N_flux"
-
-H = histogram(nflux, bins=bins, dim=["xC", "yC"]).T
-
-fig,ax = plt.subplots()
-H.sum("zC").plot(robust=True)
-nflux.median(["xC", "yC", "zC"]).plot(x="time")
-ax.set(ylim=[-50,50])
-
-submeso_mld = submeso.interp(zC=-submeso.h).compute()
-coarse_mld = coarse.interp(zC=-coarse.h).compute()
-
-
-tis = [15,25,50]
-vm = 0.04
-kw = dict(
-    nflux=dict(vmin=-vm, vmax=vm, add_colorbar=False, cmap="seismic")
+ax.grid(True, linestyle="--", alpha=0.5)
+ax.set(
+    xlim=[0,60],
+    xlabel="time [days]",
+    ylabel="z-integrated new production  [mmol N / m$^2$ / day]",
 )
-fig, ax = plt.subplots(2,len(tis))
-for col,ti in enumerate(tis):
-    C = (submeso_mld.w*submeso_mld.N).sel(time=ti).plot(ax=ax[0,col], **kw["nflux"])
-    (coarse_mld.w*coarse_mld.N).sel(time=ti).plot(ax=ax[1,col], **kw["nflux"])
-fig.colorbar(C, ax=ax)
+fig.savefig(f"../../reports/figures/integrated_new_production{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")   
+
+
+
+
+# step = 5
+# bins = np.arange(-(100+step/2),100+step/2,step)
+
+# nflux = (submeso.w*submeso.N*86400).sel(zC=slice(-100,0))
+# nflux.name = "N_flux"
+
+# H = histogram(nflux, bins=bins, dim=["xC", "yC"]).T
+
+# fig,ax = plt.subplots()
+# H.sum("zC").plot(robust=True)
+# nflux.median(["xC", "yC", "zC"]).plot(x="time")
+# ax.set(ylim=[-50,50])
+
+# submeso_mld = submeso.interp(zC=-submeso.h).compute()
+# coarse_mld = coarse.interp(zC=-coarse.h).compute()
+
+
+# tis = [15,25,50]
+# vm = 0.04
+# kw = dict(
+#     nflux=dict(vmin=-vm, vmax=vm, add_colorbar=False, cmap="seismic")
+# )
+# fig, ax = plt.subplots(2,len(tis))
+# for col,ti in enumerate(tis):
+#     C = (submeso_mld.w*submeso_mld.N).sel(time=ti).plot(ax=ax[0,col], **kw["nflux"])
+#     (coarse_mld.w*coarse_mld.N).sel(time=ti).plot(ax=ax[1,col], **kw["nflux"])
+# fig.colorbar(C, ax=ax)
     
 
-fig, ax = plt.subplots(2,len(tis))
-for col,ti in enumerate(tis):
-    C = (submeso.w*submeso.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[0,col], **kw["nflux"])
-    (coarse.w*coarse.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[1,col], **kw["nflux"])
-fig.colorbar(C, ax=ax)
+# fig, ax = plt.subplots(2,len(tis))
+# for col,ti in enumerate(tis):
+#     C = (submeso.w*submeso.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[0,col], **kw["nflux"])
+#     (coarse.w*coarse.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[1,col], **kw["nflux"])
+# fig.colorbar(C, ax=ax)
     
-
-submeso.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-coarse.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-
-
-
-fig, ax = plt.subplots(1,2)
-submeso.h.mean("xC").plot(ax=ax[0])
-coarse.h.mean("xC").plot(ax=ax[1])
-
-submeso_coarsen = submeso.h.mean("xC").coarsen(yC=10).mean().interp(yC=coarse.yC)
-
-fig,ax = plt.subplots()
-(submeso_coarsen-coarse.h.mean("xC")).plot(vmin=-100,vmax=100,cmap="RdBu")
-vm = 10
-(submeso_coarsen-coarse.h.mean("xC")).plot.contour(levels=[-vm,vm], colors="0.2")
-ax.axvline(-50)
-ax.axvline(170)
-
-data = dict(
-    submeso=dict(D=submeso, label="1 km"),
-    coarse=dict(D=coarse, label="10 km"),
-)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-fig,ax = plt.subplots(3,1)
-
-for p,a in zip(["P", "N", "new_production"], np.ravel(ax)):
-
-    dims = ["xC", "yC", "zC"]
-    average = lambda A: A.mean(dims)
-    
-    for D in [submeso, coarse]:
-        var = average((86400*D[p]))
-        # print(var.sel(time=slice(12,80)).integrate("time"))
-        var.plot(ax=a)
-    a.set(xlim=[0,80])
-
-
-
-# z_mld = (submeso.zC/submeso.h).chunk({"time":1})
-# z_mld.name = "z_mld"
-
-# nflux = (submeso.w*submeso.N).chunk({"time":1})*86400
-# nflux.name = "nflux"
-
-# bins = [
-#     np.linspace(-2,0,20),
-#     np.linspace(-1e3,1e3,700),
-# ]
-# H = histogram(z_mld, nflux, bins=bins).load()
-# H = H/H.sum("nflux_bin")
-
-# # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
-# ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
-# # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
-
-
-# z_mld = (coarse.zC/coarse.h).chunk({"time":1})
-# z_mld.name = "z_mld"
-
-# nflux = (coarse.w*coarse.N).chunk({"time":1})*86400
-# nflux.name = "nflux"
-
-# bins = [
-#     np.linspace(-2,0,20),
-#     np.linspace(-1e3,1e3,700),
-# ]
-# H = histogram(z_mld, nflux, bins=bins).load()
-# H = H/H.sum("nflux_bin")
-
-# # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
-# ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
-# # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
-
-
-
-
-# bins = [
-#     np.linspace(0,1e-7,50),
-#     np.linspace(0,0.1,50),
-# ]
-
-# zmin = -100
-# H = histogram(submeso.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
-#               86400*submeso.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
-# H.plot(robust=True)
-
-# H = histogram(coarse.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
-#               86400*coarse.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
-# H.plot(robust=True)
 
 # submeso.new_production.mean(["xC", "yC"]).integrate("zC").plot()
 # coarse.new_production.mean(["xC", "yC"]).integrate("zC").plot()
 
-# tslice = slice(12,80)
 
-# da = 86400*submeso.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
-# da = (da*np.gradient(da.time)).cumsum("time")
 
-# db = 86400*coarse.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
-# db = (db*np.gradient(db.time)).cumsum("time")
+# fig, ax = plt.subplots(1,2)
+# submeso.h.mean("xC").plot(ax=ax[0])
+# coarse.h.mean("xC").plot(ax=ax[1])
 
-# ((da-db)/db).plot()
+# submeso_coarsen = submeso.h.mean("xC").coarsen(yC=10).mean().interp(yC=coarse.yC)
+
+# fig,ax = plt.subplots()
+# (submeso_coarsen-coarse.h.mean("xC")).plot(vmin=-100,vmax=100,cmap="RdBu")
+# vm = 10
+# (submeso_coarsen-coarse.h.mean("xC")).plot.contour(levels=[-vm,vm], colors="0.2")
+# ax.axvline(-50)
+# ax.axvline(170)
+
+# data = dict(
+#     submeso=dict(D=submeso, label="1 km"),
+#     coarse=dict(D=coarse, label="10 km"),
+# )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# fig,ax = plt.subplots(3,1)
+
+# for p,a in zip(["P", "N", "new_production"], np.ravel(ax)):
+
+#     dims = ["xC", "yC", "zC"]
+#     average = lambda A: A.mean(dims)
+    
+#     for D in [submeso, coarse]:
+#         var = average((86400*D[p]))
+#         # print(var.sel(time=slice(12,80)).integrate("time"))
+#         var.plot(ax=a)
+#     a.set(xlim=[0,80])
+
+
+
+# # z_mld = (submeso.zC/submeso.h).chunk({"time":1})
+# # z_mld.name = "z_mld"
+
+# # nflux = (submeso.w*submeso.N).chunk({"time":1})*86400
+# # nflux.name = "nflux"
+
+# # bins = [
+# #     np.linspace(-2,0,20),
+# #     np.linspace(-1e3,1e3,700),
+# # ]
+# # H = histogram(z_mld, nflux, bins=bins).load()
+# # H = H/H.sum("nflux_bin")
+
+# # # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
+# # ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
+# # # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
+
+
+# # z_mld = (coarse.zC/coarse.h).chunk({"time":1})
+# # z_mld.name = "z_mld"
+
+# # nflux = (coarse.w*coarse.N).chunk({"time":1})*86400
+# # nflux.name = "nflux"
+
+# # bins = [
+# #     np.linspace(-2,0,20),
+# #     np.linspace(-1e3,1e3,700),
+# # ]
+# # H = histogram(z_mld, nflux, bins=bins).load()
+# # H = H/H.sum("nflux_bin")
+
+# # # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
+# # ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
+# # # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
+
+
+
+
+# # bins = [
+# #     np.linspace(0,1e-7,50),
+# #     np.linspace(0,0.1,50),
+# # ]
+
+# # zmin = -100
+# # H = histogram(submeso.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
+# #               86400*submeso.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
+# # H.plot(robust=True)
+
+# # H = histogram(coarse.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
+# #               86400*coarse.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
+# # H.plot(robust=True)
+
+# # submeso.new_production.mean(["xC", "yC"]).integrate("zC").plot()
+# # coarse.new_production.mean(["xC", "yC"]).integrate("zC").plot()
+
+# # tslice = slice(12,80)
+
+# # da = 86400*submeso.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
+# # da = (da*np.gradient(da.time)).cumsum("time")
+
+# # db = 86400*coarse.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
+# # db = (db*np.gradient(db.time)).cumsum("time")
+
+# # ((da-db)/db).plot()
 
 
 # submeso.new_production.mean(["xC", "yC"]).T.sel(zC=slice(-60,0), time=slice(12,80)).plot.contourf(levels=10,vmax=3e-5)

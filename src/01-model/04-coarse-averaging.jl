@@ -1,7 +1,7 @@
 using Bioceananigans
 using Oceananigans
 using Oceananigans.Units
-using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition
+using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_regions!
 using KernelAbstractions.Extras.LoopInfo: @unroll
 
 
@@ -9,56 +9,33 @@ sinking = true
 
 #--------------- Grid
 
-const Nx = 100 # number of points in x
-const Ny = 500 # number of points in y
-const Nz = 48 # number of points in z
+using NCDatasets
+ds = Dataset("../../data/interim/input_coarse.nc")
+
 const H = 1000 # maximum depth
 
 
+
+const Nx, Ny, Nz = size(ds["b"][:,:,:,1])
+
 grid = RectilinearGrid(GPU(),
-    size=(Nx,Ny,Nz),
-    halo=(3,3,3),
-    x=(-(Nx/2)kilometers, (Nx/2)kilometers), 
-    y=(-(Ny/2)kilometers, (Ny/2)kilometers), 
-    z=(H * cos.(LinRange(π/2,0,Nz+1)) .- H)meters,
+    size=(Nx, Ny, Nz),
+    x=(minimum(ds["xF"]),maximum(ds["xF"])+diff(ds["xF"])[end]),
+    y=(minimum(ds["yF"]),maximum(ds["yF"])+diff(ds["yF"])[end]),
+    z=ds["zF"][:],
     topology=(Periodic, Bounded, Bounded)
 )
+
 
 #--------------- Coriolis
 
 coriolis = FPlane(latitude=60)
 
-#--------------- Bottom drag
-
-cᴰ = 1e-4 # quadratic drag coefficient
-
-@inline bottom_drag_u(x, y, t, u, v, cᴰ) = - cᴰ * u * sqrt(u^2 + v^2)
-@inline bottom_drag_v(x, y, t, u, v, cᴰ) = - cᴰ * v * sqrt(u^2 + v^2)
-
-bottom_drag_bc_u = FluxBoundaryCondition(bottom_drag_u, field_dependencies=(:u, :v), parameters=cᴰ)
-bottom_drag_bc_v = FluxBoundaryCondition(bottom_drag_v, field_dependencies=(:u, :v), parameters=cᴰ)
-
-u_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_u)
-v_bcs = FieldBoundaryConditions(bottom = bottom_drag_bc_v)
-
 
 #--------------- Sponges
 
-const sponge_size = 50kilometers
-const slope = 10kilometers
-const ymin = minimum(ynodes(Center, grid))
-const ymax = maximum(ynodes(Center, grid))
-
-@inline mask_func(x,y,z) = ((
-     tanh((y-(ymax-sponge_size))/slope)
-    *tanh((y-(ymin+sponge_size))/slope)
-)+1)/2
-
-mom_sponge = Relaxation(rate=1/1hour, mask=mask_func, target=0)
-
-horizontal_closure = HorizontalScalarDiffusivity(ν=1, κ=1)
+horizontal_closure = HorizontalScalarDiffusivity(ν=10, κ=10)
 vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
-
 
 #--------------- NP Model
 
@@ -125,53 +102,40 @@ set!(w, w_func)
 P_sink = AdvectiveForcing(WENO5(; grid), w = w)
 
 
+
 #--------------- Instantiate Model
 
+no_penetration = ImpenetrableBoundaryCondition()
+v_bc = FieldBoundaryConditions(grid, (Center, Face, Center), north=no_penetration, south=no_penetration)
+w_bc = FieldBoundaryConditions(grid, (Center, Center, Face), top=no_penetration, bottom=no_penetration)
+
+u = Field((Face, Center, Center), grid)
+v = Field((Center, Face, Center), grid, boundary_conditions=v_bc)
+w = Field((Center, Center, Face), grid, boundary_conditions=w_bc)
+
 forcing = (;
-    P=(P_dynamics, P_sink), N=N_dynamics, Nr=Nr_dynamics,
-    u=mom_sponge, v=mom_sponge, w=mom_sponge,
+    P=(P_dynamics, P_sink), N=(N_dynamics), 
+    Nr=(Nr_dynamics),
 )
 
-model = NonhydrostaticModel(grid = grid,
-                            advection = WENO5(),
+
+model = HydrostaticFreeSurfaceModel(grid = grid,
+                            tracer_advection = WENO5(),
+                            momentum_advection = nothing,
                             coriolis = coriolis,
-                            closure = (horizontal_closure,vertical_closure),
-                            tracers = (:b, :P, :N, :Nr),
-                            buoyancy = BuoyancyTracer(),
+                            velocities = PrescribedVelocityFields(u=u, v=v, w=w),
+                            buoyancy = nothing,
                             forcing = forcing,
-                            boundary_conditions = (u=u_bcs, v=v_bcs))
+                            closure=(horizontal_closure,vertical_closure),
+                            tracers = (:b, :P, :N, :Nr))
 
 
-#--------------- Initial Conditions
+bᵢ = Float64.(ds["b"][:,:,:,1])
+Pᵢ = Float64.(ds["P"][:,:,:,1])
+Nᵢ = Float64.(ds["N"][:,:,:,1])
+Nrᵢ = Float64.(ds["Nr"][:,:,:,1])
 
-const L = (Nx-1)kilometers/10
-const amp = 1kilometers
-const g = 9.82
-const ρₒ = 1026
-
-# background density profile based on Argo data
-@inline bg(z) = -0.147 * tanh( 2.6 * ( z + 623 ) / 1000 ) - 1027.6
-
-# decay function for fronts
-@inline decay(z) = ( tanh( (z + 500) / 300) + 1 ) / 2
-
-# front function
-@inline front(x, y, z, cy) = tanh( ( y - ( cy + sin(2π * x / L) * amp ) ) / 12kilometers )
-
-
-@inline D(x, y, z) = bg(z) + 0.8*decay(z)*((front(x, y, z, -100kilometers)+front(x, y, z, 0)+front(x, y, z, 100kilometers))-3)/6
-@inline B(x, y, z) = -(g/ρₒ)*D(x, y, z)
-
-# initial phytoplankton profile
-@inline P(x, y, z) = 0.1 * ( tanh( 0.01 * (z + 300)) + 1) / 2
-
-# initial nitrate profile
-@inline N(x, y, z) = z * (12 - 16) / (0 + 800) + 12
-
-# setting the initial conditions
-set!(model; b=B, P=P, N=N, Nr=0)
-
-
+set!(model; b=bᵢ, P=Pᵢ, N=Nᵢ, Nr=Nrᵢ)
 
 #--------------- Initial Geostrophic Velocities
 
@@ -189,21 +153,19 @@ vz = compute!(Field(vz_op))
 include("cumulative_vertical_integration.jl")
 
 # compute geostrophic velocities
-U = cumulative_vertical_integration!(uz)
-V = cumulative_vertical_integration!(vz)
+uᵢ = cumulative_vertical_integration!(uz)
+vᵢ = cumulative_vertical_integration!(vz)
 
-# prescribe geostrophic velocities for initial condition
-set!(model; u = U, v = V)
-
+set!(model; u=uᵢ, v=vᵢ)
 
 #--------------- Simulation
 
-simulation = Simulation(model, Δt = 1minutes, stop_time = 90day)
+simulation = Simulation(model, Δt = 3hour, stop_time = 90day)
 
-wizard = TimeStepWizard(cfl=1.0, max_change=1.1, max_Δt=1hour)
-simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #--------------- Mixed Layer Depth
+const g = 9.82
+const ρₒ = 1026
 
 h = Field{Center, Center, Nothing}(grid) 
 # buoyancy decrease criterium for determining the mixed-layer depth
@@ -228,10 +190,49 @@ simulation.callbacks[:compute_light_growth] = Callback(compute_light_growth!)
 end
 simulation.callbacks[:zeroing] = Callback(zeroing)
 
+#--------------- Prescribe buoyancy
+
+
+function update_b!(sim)
+    ti = sim.model.clock.time
+    
+    set!(model,
+        b = Float64.(ds["b"][:,:,:,Int(round(ti/3hours))+1])
+    )
+    return nothing
+end
+simulation.callbacks[:update_b] = Callback(update_b!)
+
+
+#--------------- Compute geostrophic velocities
+
+# include function for cumulative integration
+include("cumulative_vertical_integration.jl")
+
+function compute_uv!(sim)
+    b = model.tracers.b
+    f = model.coriolis.f
+
+    # shear operations
+    uz_op = Field(@at((Face, Center, Center), -∂y(b) / f ));
+    vz_op = Field(@at((Center, Face, Center),  ∂x(b) / f ));
+    
+    uᵢ = compute!(cumulative_vertical_integration!(uz))
+    vᵢ = compute!(cumulative_vertical_integration!(vz))
+    
+    set!(model; u=uᵢ, v=vᵢ)
+    return nothing
+end
+simulation.callbacks[:compute_uv] = Callback(compute_uv!)
+
+
+
 #--------------- Writing Outputs
 
 bi, Pi, Ni, Nri = simulation.model.tracers
-u, v, w = simulation.model.velocities
+u = simulation.model.velocities.u
+v = simulation.model.velocities.v
+w = simulation.model.velocities.w
 
 
 extra_outputs = (; 
@@ -244,27 +245,30 @@ extra_outputs = (;
     N2=@at((Center, Center, Center), ∂z(bi)),
     ∇b=@at((Center, Center, Center), sqrt(∂x(bi)^2 + ∂y(bi)^2)),
     Ro=@at((Center, Center, Center), (∂x(v)-∂y(u))/f),
+    hx=@at((Center, Face, Nothing), h), 
+    hy=@at((Face, Center, Nothing), h), 
 )
 
 if sinking
-    filename = "../../data/raw/output_submesoscale_mu$(μ₀*days).nc"
+    filename = "../../data/raw/output_coarse_averaging_mu$(μ₀*days).nc"
 else
-    filename = "../../data/raw/output_submesoscale_nosinking_mu$(μ₀*days).nc"
+    filename = "../../data/raw/output_coarse_averaging_nosinking_mu$(μ₀*days).nc"
 end
 
 simulation.output_writers[:fields] =
-    NetCDFOutputWriter(model, merge(model.tracers, extra_outputs),
-                     overwrite_existing=true,
-                     filename = filename,
-                     schedule=TimeInterval(3hours))
-
+    NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
+                    filename = filename,
+                    overwrite_existing=true,
+                    schedule=IterationInterval(1))
 
 #--------------- Printing Progress
 
 using Printf
 
 function print_progress(simulation)
-    u, v, w = simulation.model.velocities
+    u = simulation.model.velocities.u
+    v = simulation.model.velocities.v
+    w = simulation.model.velocities.w
 
     # Print a progress message
     msg = @sprintf("i: %04d, t: %s, Δt: %s, umax = (%.1e, %.1e, %.1e) ms⁻¹, wall time: %s\n",
