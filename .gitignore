@@ -25,3 +25,4 @@ Manifest.toml
 **/*.mp4
 **/*.nc
 .ipynb_checkpoints
+src/02-analysis/__pycache__
