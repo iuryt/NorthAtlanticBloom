@@ -3,21 +3,21 @@ using Oceananigans
 using Oceananigans.Units
 using Oceananigans.BoundaryConditions: ImpenetrableBoundaryCondition, fill_halo_regions!
 
-
-mle = false
+sinking = true
+mle = true
 
 #--------------- Grid
 
 using NCDatasets
 ds = Dataset("../../data/interim/input_coarse.nc")
 
-const initial_time = ds["time"][1]
+i = 97
+
+const initial_time = ds["time"][i]
 const H = 1000 # maximum depth
 
 
- 
-
-const Nx, Ny, Nz = size(ds["b"])
+const Nx, Ny, Nz = size(ds["b"][:,:,:,i])
 
 grid = RectilinearGrid(GPU(),
     size=(Nx, Ny, Nz),
@@ -66,7 +66,7 @@ vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
 #--------------- NP Model
 
 # constants for the NP model
-const μ₀ = 1/day   # surface growth rate
+const μ₀ = 0.75/day   # surface growth rate
 const m = 0.015/day # mortality rate due to virus and zooplankton grazing
 const Kw = 0.059 # meter^-1
 const kn = 0.75
@@ -115,7 +115,7 @@ Nr_dynamics = Forcing(Nr_forcing, discrete_form=true, parameters=(; light_growth
 # sinking velocity
 
 # Vertical velocity function
-const w_sink = -1meter/day
+const w_sink = ifelse(sinking,-1meter/day,0)
 const lamb = 1meters
 @inline w_func(x, y, z) = w_sink * tanh(max(-z / lamb, 0.0)) * tanh(max((z + H) / lamb, 0.0))
 
@@ -170,10 +170,10 @@ model = NonhydrostaticModel(grid = grid,
 
 model.clock.time = initial_time*days
 
-bᵢ = Float64.(ds["b"][:])
-Pᵢ = Float64.(ds["P"][:])
-Nᵢ = Float64.(ds["N"][:])
-Nrᵢ = Float64.(ds["Nr"][:])
+bᵢ = Float64.(ds["b"][:,:,:,i])
+Pᵢ = Float64.(ds["P"][:,:,:,i])
+Nᵢ = Float64.(ds["N"][:,:,:,i])
+Nrᵢ = Float64.(ds["Nr"][:,:,:,i])
 
 set!(model; b=bᵢ, P=Pᵢ, N=Nᵢ, Nr=Nrᵢ)
 
@@ -310,19 +310,28 @@ extra_outputs = (;
     ∂b∂x, ∂b∂y, Ψx, Ψy
 )
 
+
+
 if mle
-    simulation.output_writers[:fields] =
-        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
-                        filename = "../../data/raw/output_coarse_mle.nc",
-                        overwrite_existing=true,
-                        schedule=TimeInterval(8hours))
+    filename = "../../data/raw/output_coarse_mle"
 else
-    simulation.output_writers[:fields] =
-        NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
-                        filename = "../../data/raw/output_coarse_no_mle.nc",
-                        overwrite_existing=true,
-                        schedule=TimeInterval(8hours))
+    filename = "../../data/raw/output_coarse_no_mle"
 end
+
+if sinking
+    filename = filename*"_mu$(μ₀*days).nc"
+else
+    filename = filename*"_nosinking_mu$(μ₀*days).nc"
+end
+
+
+
+simulation.output_writers[:fields] =
+    NetCDFOutputWriter(model, merge(model.tracers, extra_outputs), 
+                    filename = filename,
+                    overwrite_existing=true,
+                    schedule=TimeInterval(8hours))
+
 
 #--------------- Printing Progress
 
