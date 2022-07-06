@@ -6,6 +6,9 @@ from scipy.optimize import curve_fit
 
 
 chla = xr.open_dataset("../../data/interim/bioargo_north_atlantic.nc")
+chla = chla.assign(biomass=chla.CPHL_ADJUSTED*(16/(0.06*106*14)))
+chla.biomass["units"] = "mmol N m-3"
+
 no3 = xr.open_dataset("../../data/interim/woa18_north_atlantic.nc")
 shortwave = xr.open_dataarray("../../data/interim/shortwave_north_atlantic.nc")
 argo = xr.open_dataset("../../data/interim/argo_north_atlantic.nc").mean("N_PROF")
@@ -45,11 +48,11 @@ cdf_no3 = h_no3.cumsum("n_an_bin")/h_no3.sum("n_an_bin")
 popt_no3 = np.array([12,16,0,-800,12])
 titles["no3"] = f"z ({popt_no3[0]}-{popt_no3[1]})/({popt_no3[2]}+{-popt_no3[3]}) + {popt_no3[4]}"
 
-dc = 0.022
-h_chla = histogram(-chla.PRES, chla.CPHL_ADJUSTED, bins=[np.arange(-1000,0+10,10), np.arange(-0.02-dc/2,0.2,dc)])
-cdf_chla = h_chla.cumsum("CPHL_ADJUSTED_bin")/h_chla.sum("CPHL_ADJUSTED_bin")
-cdf_chla = cdf_chla.assign_coords(CPHL_ADJUSTED_bin=cdf_chla.CPHL_ADJUSTED_bin+dc/2)
-popt_chla = np.array([0.1,1e-2,-300])
+dc = 0.001
+h_chla = histogram(-chla.PRES, chla.biomass, bins=[np.arange(-1000,0+10,10), np.arange(-0.001-dc/2,0.05,dc)])
+cdf_chla = h_chla.cumsum("biomass_bin")/h_chla.sum("biomass_bin")
+cdf_chla = cdf_chla.assign_coords(CPHL_ADJUSTED_bin=cdf_chla.biomass_bin+dc/2)
+popt_chla = np.array([0.02,1.2e-2,-260])
 titles["chla"] = f"{popt_chla[0]}(tanh({popt_chla[1]}(z+{-popt_chla[2]}))+1)/2 "
 
 
@@ -101,7 +104,7 @@ def make_figure():
         ylabel="z [m]",
         yticks=-np.arange(0,1000,200),
         ylim=[-1000,-10],
-        xlabel="Chl-a [mg m$^{-3}$]",
+        xlabel="Chl-a [mmol N m$^{-3}$]",
     )
 
     ax["no3"].set(
@@ -126,8 +129,8 @@ def make_figure():
     letters = "a b c d".split()
     _ = [ax[k].set(title=f"{letter})"+50*" ") for k,letter in zip(ax, letters)]
     
-    kw = dict(fontsize=9, color=colors["model"], rotation=90, va="center")
-    _ = [ax[k].text(0.93,0.5,titles[k], **kw, transform=ax[k].transAxes) for k in titles]
+    # kw = dict(fontsize=9, color=colors["model"], rotation=90, va="center")
+    # _ = [ax[k].text(0.93,0.5,titles[k], **kw, transform=ax[k].transAxes) for k in titles]
 
     return fig,ax
 
