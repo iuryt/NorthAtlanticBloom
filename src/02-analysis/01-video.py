@@ -1,51 +1,45 @@
 import xarray as xr
-import xgcm
 import numpy as np
 import matplotlib.pyplot as plt
-import proplot as pplt
 from tqdm import tqdm
 import seawater as sw
+
+from cmocean import cm
 
 import matplotlib
 matplotlib.rcdefaults()
 
 yslice = slice(-150, 150)
 
-ds = []
-D = xr.open_dataset("../../data/raw/output_submesoscale.nc")
-D = D.assign_coords(time=D.time.astype("float")*1e-9/86400)
-for ti in tqdm(range(D.time.size)):
-    ds.append(D.isel(time=ti).interp(xF=D.xC, yF=D.yC, zF=D.zC).drop(["xF", "yF", "zF"]))
-ds = xr.concat(ds, "time")
-ds.u[:,:,:,-1] = ds.u[:,:,:,0]
+data = dict(
+    submesoscale = dict(label="1 km"),
+    coarse_mle = dict(label="10 km\n(MLE)"),
+    coarse_averaging = dict(label="10 km\n(avg.)")
+)
 
-ds = ds.assign(Ro=(ds.v.differentiate("xC")-ds.u.differentiate("yC"))/sw.f(60))
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-submeso = ds.sel(yC=yslice).isel(xC=slice(None,-1))
+sinking = True
 
+sinking_text = "" if sinking else "_nosinking"
 
-ds = xr.open_dataset("../../data/raw/output_coarse_mle.nc")
-ds = ds.interp(xF=ds.xC, yF=ds.yC, zF=ds.zC).drop(["xF", "yF", "zF"])
-ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
-ds.u[:,:,:,-1] = ds.u[:,:,:,0]
+mus = [0.5,0.75,1.0,1.25]
 
-ds = ds.assign(Ro=(ds.v.differentiate("xC")-ds.u.differentiate("yC"))/sw.f(60))
-ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
-coarse = ds.sel(yC=yslice)
-
-
-
-
+for k in data:
+    data[k]["D"] = dict()
+    for mu in mus:
+        ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}_mu{mu}.nc").isel(time=slice(None,None,3))
+        ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
+        ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
+        data[k]["D"][mu] = ds.sel(yC=yslice)
 
 
 
 
 kw = dict(
     Ro=dict(
-        vmin=-1.5, vmax=1.5, levels=np.linspace(-2,2,20), cmap="curl",
+        vmin=-1.5, vmax=1.5, levels=np.linspace(-2,2,20), cmap="RdBu_r",
     ),
     new_production=dict(
-        vmin=0, vmax=2.5, levels=np.linspace(0,2.5,20), cmap="marine",
+        vmin=0, vmax=2.5, levels=np.linspace(0,2.5,20), cmap=cm.tempo,
     ),
     b=dict(
         vmin=9.8, vmax=9.9, levels=np.linspace(9.8,9.9,150), colors="0.2",
@@ -66,13 +60,15 @@ zmin = -500
 ti = 20
 fig = plt.figure(figsize=(12,8), facecolor="w")
 ax = np.array([
-    [fig.add_subplot(221,projection='3d'), fig.add_subplot(222,projection='3d')],
-    [fig.add_subplot(223,projection='3d'), fig.add_subplot(224,projection='3d')]
+    [fig.add_subplot(231,projection='3d'), fig.add_subplot(232,projection='3d'), fig.add_subplot(233,projection='3d')],
+    [fig.add_subplot(234,projection='3d'), fig.add_subplot(235,projection='3d'), fig.add_subplot(236,projection='3d')],
 ])
 # fig.subplots_adjust(hspace=0.0, wspace=-0.1)
 
+mu = 0.5
 for row,p in enumerate(ps):
-    for col,A in enumerate([submeso, coarse]):
+    for col,k in enumerate(data):
+        A = data[k]["D"][mu]
         a = ax[row, col]
 
         da = A[p].sel(zC=slice(zmin,0))*ps[p]["factor"]

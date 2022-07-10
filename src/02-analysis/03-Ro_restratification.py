@@ -16,17 +16,18 @@ from cmocean import cm
 yslice = slice(-130, 130)
 
 data = dict(
-    submesoscale = dict(label="1 km"),
-    coarse_mle = dict(label="10 km\n(MLE)"),
-    coarse_averaging = dict(label="10 km\n(averaging)")
+    submesoscale = dict(label="SUB"),
+    coarse_mle = dict(label="MLE"),
+    coarse_averaging = dict(label="NVF")
 )
 
 sinking = True
+mu = 0.5
 
 sinking_text = "" if sinking else "_nosinking"
 for k in tqdm(data):
 
-    ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}.nc").sel(time=slice(None,None,3))
+    ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}_mu{mu}.nc").sel(time=slice(None,None,3))
     ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
     ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
     data[k]["D"] = ds.sel(yC=yslice)
@@ -81,7 +82,7 @@ for col,k in enumerate(data):
 [a.set(ylabel="") for a in np.ravel(ax[:,1:])]
 [a.grid(True, linestyle="--", alpha=0.8) for a in np.ravel(ax)]
 
-letters = "a b c d".split()
+letters = "a b c d e f".split()
 _ = [a.set(title=f"{letter})"+60*" ") for a,letter in zip(np.ravel(ax),letters)]
 
 fig.savefig(f"../../reports/figures/Ro_pdf{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")
@@ -102,7 +103,7 @@ ps = dict(
 kw_text = dict(ha="right", va="bottom", fontsize=10, fontweight="bold", color="0.5")
 
 zmin = -150
-fig,ax = plt.subplots(len(data),2, figsize=(9,9))
+fig,ax = plt.subplots(len(data),2, figsize=(9,8))
 fig.subplots_adjust(wspace=0.25)
 for row,k in enumerate(data):
         p = "h"
@@ -124,7 +125,7 @@ for row,k in enumerate(data):
             (ps[p]["factor"]*data[k]["D"][p].mean(["xC", "yC"])).sel(zC=slice(zmin,0)).T
         ).plot.contourf(ax=a, **ps[p]["kw"])
         (ps["h"]["factor"]*data[k]["D"]["h"].median(["xC", "yC"])).plot(ax=a, color=color)
-        a.set(xlim=[1,80], ylim=[zmin,-5], ylabel="z [m]", xlabel="time [days]")
+        a.set(xlim=[1,40], ylim=[zmin,-5], ylabel="z [m]", xlabel="time [days]")
         text = a.text(0.97, 0.03, data[k]["label"], 
                transform=a.transAxes, **kw_text)
         text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='w'),
@@ -139,7 +140,7 @@ fig.colorbar(C2, ax=ax[:,1], orientation="horizontal", label="N$^2$ [s$^{-1}$]")
 [a.set(xticklabels=[], xlabel="") for a in ax[0,:]]
 [a.grid(True, linestyle="--", alpha=0.8) for a in np.ravel(ax)]
 
-letters = "a b c d".split()
+letters = "a b c d e f".split()
 _ = [a.set(title=f"{letter})"+70*" ") for a,letter in zip(np.ravel(ax),letters)]
 
-fig.savefig(f"../../reports/figures/mld_n2{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")    
+fig.savefig(f"../../reports/figures/mld_n2{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")

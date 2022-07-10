@@ -66,7 +66,7 @@ vertical_closure = ScalarDiffusivity(ν=1e-5, κ=1e-5)
 #--------------- NP Model
 
 # constants for the NP model
-const μ₀ = 0.75/day   # surface growth rate
+const μ₀ = 1.25/day   # surface growth rate
 const m = 0.015/day # mortality rate due to virus and zooplankton grazing
 const Kw = 0.059 # meter^-1
 const kn = 0.75

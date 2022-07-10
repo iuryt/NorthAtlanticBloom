@@ -8,8 +8,9 @@ from cmaps import BuGnWYlRd
 
 
 yslice = slice(-130, 130)
+mu = 0.75
 
-ds = xr.open_dataset("../../data/raw/output_submesoscale.nc")
+ds = xr.open_dataset(f"../../data/raw/output_submesoscale_mu{mu}.nc")
 ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
 ds = ds.assign_coords(xC=ds.xC*1e-3, yC=ds.yC*1e-3)
 submeso = ds.sel(yC=yslice)

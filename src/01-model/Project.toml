@@ -1,0 +1,7 @@
+[deps]
+Bioceananigans = "ace54579-eb90-495b-a991-2a6890241a52"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LLVMExtra_jll = "dad2f222-ce93-54a1-a47d-0025e8a3acab"
+NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"

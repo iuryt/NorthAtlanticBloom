@@ -59,7 +59,7 @@ argo = argo.where(argo.TIME.dt.month==month,drop=True)
 
 PRES = (argo.PRES_INTERPOLATED*xr.ones_like(argo.TEMP)).T
 argo = argo.assign(PDEN=(("N_PROF", "PRES_INTERPOLATED"),sw.pden(argo.PSAL.values,argo.TEMP.values,PRES.values)))
-argo = argo.assign(B=-(9.82/1025)*argom.PDEN)
+argo = argo.assign(B=-(9.82/1025)*argo.PDEN)
 
 argo.to_netcdf("../../data/interim/argo_north_atlantic.nc")
 

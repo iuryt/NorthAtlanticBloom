@@ -2,7 +2,7 @@ import xarray as xr
 import numpy as np
 from tqdm import tqdm
 
-ds = xr.open_dataset("../../data/raw/output_submesoscale.nc")
+ds = xr.open_dataset("../../data/raw/output_submesoscale_mu0.5.nc")
 ds = ds.assign_coords(time=ds.time.astype("float")*1e-9/86400)
     
 
