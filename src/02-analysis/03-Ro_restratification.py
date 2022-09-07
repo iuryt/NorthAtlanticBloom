@@ -111,7 +111,7 @@ for row,k in enumerate(data):
         C1 = (
             (ps[p]["factor"]*data[k]["D"][p].mean(["xC"])).T
         ).plot.contourf(ax=a, **ps[p]["kw"])
-        a.set(xlim=[1,80], ylabel="y [km]", xlabel="time [days]")
+        a.set(xlim=[1,40], ylabel="y [km]", xlabel="time [days]")
         text = a.text(0.97, 0.03, data[k]["label"], 
                transform=a.transAxes, **kw_text)
         text.set_path_effects([path_effects.Stroke(linewidth=2, foreground='w'),

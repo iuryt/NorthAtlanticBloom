@@ -163,7 +163,7 @@ const ρₒ = 1026
 @inline B(x, y, z) = -(g/ρₒ)*D(x, y, z)
 
 # initial phytoplankton profile
-@inline P(x, y, z) = 0.1 * ( tanh( 0.01 * (z + 300)) + 1) / 2
+@inline P(x, y, z) = 0.2 * ( tanh( 0.01 * (z + 300)) + 1) / 2
 
 # initial nitrate profile
 @inline N(x, y, z) = z * (12 - 16) / (0 + 800) + 12

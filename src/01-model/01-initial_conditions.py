@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import xarray as xr
 from xhistogram.xarray import histogram
 from scipy.optimize import curve_fit
-
+from cmcrameri import cm
 
 chla = xr.open_dataset("../../data/interim/bioargo_north_atlantic.nc")
 chla = chla.assign(biomass=chla.CPHL_ADJUSTED*(16/(0.06*106*14)))
@@ -56,23 +56,63 @@ popt_chla = np.array([0.02,1.2e-2,-260])
 titles["chla"] = f"{popt_chla[0]}(tanh({popt_chla[1]}(z+{-popt_chla[2]}))+1)/2 "
 
 
+
+
+x = xr.DataArray(np.arange(-50,50+1), dims="x")*1e3
+y = xr.DataArray(np.arange(-250,250+1), dims="y")*1e3
+z = xr.DataArray(np.arange(-1000,0+1), dims="z")
+
+L = (99)*1e3/10
+amp = 1e3
+g = 9.82
+ρₒ = 1026
+
+# background density profile based on Argo data
+bg = lambda z: -0.147 * np.tanh( 2.6 * ( z + 623 ) / 1000 ) - 1027.6
+
+# decay function for fronts
+decay = lambda z: ( np.tanh( (z + 500) / 300) + 1 ) / 2
+
+# front function
+front = lambda x, y, z, cy: np.tanh( ( y - ( cy + np.sin(np.pi * x / L) * amp ) ) / 12e3 )
+
+
+D = lambda x, y, z: bg(z) + 0.8*decay(z)*((front(x, y, z, -100e3)+front(x, y, z, 0)+front(x, y, z, 100e3))-3)/6
+
+B = lambda x, y, z: -(g/ρₒ)*D(x, y, z)
+
+bi = B(x,y,z).assign_coords(x=x, y=y, z=z).mean("x")
+
+
+
+
+
 def make_figure():
     colors = {
         "obs": "#1E88E5",
         "model": "#D81B60",
     }
 
-    fig = plt.figure(figsize=(6,6), constrained_layout=True)
+    fig = plt.figure(figsize=(8,6), constrained_layout=True)
     ax = fig.subplot_mosaic(
         [
-            ["pden", "chla"],
-            ["no3", "shortwave"],
+            ["pden", "b", "b"],
+            ["shortwave", "chla", "no3"],
         ],
     )
 
     _ = (argo.PDEN-1000)[::100].plot.line(ax=ax["pden"], y="z", ylim=[1000,0], lw=0, marker="o", color=colors["obs"])
     _ = (argo.PDENf-1000).plot.line(ax=ax["pden"], y="z", ylim=[1000,0], color=colors["model"])
     ax["pden"].text(0.5, 0.02, "Argo", ha="center", color="0.3", fontsize=12, transform=ax["pden"].transAxes)
+
+    bi.plot.contour(ax=ax["b"], levels=15, colors="0.2")
+    bi.differentiate("y").plot.contourf(
+                    ax=ax["b"],
+                    vmin=-1e-7,
+                    cmap=cm.acton,
+                    levels=(-1e-7)*np.arange(0,1.2,0.2),
+                    cbar_kwargs=dict(label="$\partial_y$b [s$^{-2}$]"),
+        )    
 
     cdf_chla.plot.contourf(ax=ax["chla"], levels=[0.2,0.8], colors=colors["obs"], alpha=0.5, extend="neither", add_colorbar=False)
     cdf_chla.plot.contour(ax=ax["chla"], levels=[0.5], colors=colors["obs"])
@@ -100,18 +140,28 @@ def make_figure():
         xlim=[27.4,27.75],
     )
 
+    ax["b"].set(
+        xlabel="y [km]",
+        ylabel="z [m]",
+        yticks=-np.arange(0,1000,200),
+        ylim=[-1000,-10],
+        xticks = np.arange(-200,200+1,100)*1e3,
+        xticklabels = np.arange(-200,200+1,100),
+    )    
+
     ax["chla"].set(
         ylabel="z [m]",
         yticks=-np.arange(0,1000,200),
         ylim=[-1000,-10],
-        xlabel="Chl-a [mmol N m$^{-3}$]",
+        xlabel="Phytoplankton ($\mathcal{P}\,$)\n[mmol N m$^{-3}$]",
     )
 
     ax["no3"].set(
         ylabel="z [m]",
         yticks=-np.arange(0,1000,200),
         ylim=[-800,-10],
-        xlabel="Nitrate [mmol N m$^{-3}$]"
+        xlim=[10,20],
+        xlabel="Nitrate ($\mathcal{N}_n\,$)\n[mmol N m$^{-3}$]"
     )
 
 
@@ -121,13 +171,15 @@ def make_figure():
         title="",
         ylim=[20,280],
         xlim=[0,370],
-        xticks=np.arange(0,365,50),
+        xticks=np.arange(0,365,100),
     )
     # title=f"{a} sin( 2$\pi$ ( t + t$_0$ ) / {b} + {c} ) + {d}"
 
     _ = [ax[k].grid(True, linestyle="--", alpha=0.5) for k in ax]
-    letters = "a b c d".split()
-    _ = [ax[k].set(title=f"{letter})"+50*" ") for k,letter in zip(ax, letters)]
+    letters = "a b c d e".split()
+    for k,letter in zip(ax, letters):
+        whitespace = 70 if k=="b" else 30
+        ax[k].set(title=f"{letter})"+whitespace*" ")
     
     # kw = dict(fontsize=9, color=colors["model"], rotation=90, va="center")
     # _ = [ax[k].text(0.93,0.5,titles[k], **kw, transform=ax[k].transAxes) for k in titles]
@@ -136,3 +188,9 @@ def make_figure():
 
 fig,ax = make_figure()
 fig.savefig("../../reports/figures/data_driven_initial_conditions.png", facecolor="w", dpi=300, bbox_inches="tight")
+
+
+
+
+
+

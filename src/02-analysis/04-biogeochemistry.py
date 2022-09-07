@@ -28,7 +28,7 @@ sinking_text = "" if sinking else "_nosinking"
 mus = [0.5,0.75,1.0,1.25]
 
 
-for k in data:
+for k in tqdm(data):
     data[k]["D"] = dict()
     for mu in mus:
         ds = xr.open_dataset(f"../../data/raw/output_{k}{sinking_text}_mu{mu}.nc").isel(time=slice(None,None,3))
@@ -109,6 +109,8 @@ for mu in mus:
     integ.append(integi.expand_dims("mu").assign_coords(mu=[mu]))
 integ = xr.concat(integ,"mu")
 
+print(integ.sel(time=slice(12,32)).integrate("time")-integ.sel(time=slice(12,32),exp="submesoscale").integrate("time"))
+print(1-integ.sel(time=slice(12,32)).integrate("time")/integ.sel(time=slice(12,32)).integrate("time").sel(exp="submesoscale"))
 
 colors = ["0.1","0.4","0.7","0.8"]
 titles = [
@@ -129,172 +131,3 @@ _ = [a.grid(True,linestyle="--",alpha=0.5) for a in ax]
 _ = [a.set(ylabel="") for a in ax[1:]]
 fig.savefig(f"../../reports/figures/integrated_new_production{sinking_text}.png", facecolor="w", dpi=300, bbox_inches="tight")  
 
-print(1-integ.sel(time=slice(12,32)).integrate("time")/integ.sel(time=slice(12,32)).integrate("time").sel(exp="submesoscale"))
-
-
-
-
-
-# step = 5
-# bins = np.arange(-(100+step/2),100+step/2,step)
-
-# nflux = (submeso.w*submeso.N*86400).sel(zC=slice(-100,0))
-# nflux.name = "N_flux"
-
-# H = histogram(nflux, bins=bins, dim=["xC", "yC"]).T
-
-# fig,ax = plt.subplots()
-# H.sum("zC").plot(robust=True)
-# nflux.median(["xC", "yC", "zC"]).plot(x="time")
-# ax.set(ylim=[-50,50])
-
-# submeso_mld = submeso.interp(zC=-submeso.h).compute()
-# coarse_mld = coarse.interp(zC=-coarse.h).compute()
-
-
-# tis = [15,25,50]
-# vm = 0.04
-# kw = dict(
-#     nflux=dict(vmin=-vm, vmax=vm, add_colorbar=False, cmap="seismic")
-# )
-# fig, ax = plt.subplots(2,len(tis))
-# for col,ti in enumerate(tis):
-#     C = (submeso_mld.w*submeso_mld.N).sel(time=ti).plot(ax=ax[0,col], **kw["nflux"])
-#     (coarse_mld.w*coarse_mld.N).sel(time=ti).plot(ax=ax[1,col], **kw["nflux"])
-# fig.colorbar(C, ax=ax)
-    
-
-# fig, ax = plt.subplots(2,len(tis))
-# for col,ti in enumerate(tis):
-#     C = (submeso.w*submeso.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[0,col], **kw["nflux"])
-#     (coarse.w*coarse.N).sel(zC=-100, time=ti, method="nearest").plot(ax=ax[1,col], **kw["nflux"])
-# fig.colorbar(C, ax=ax)
-    
-
-# submeso.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-# coarse.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-
-
-
-# fig, ax = plt.subplots(1,2)
-# submeso.h.mean("xC").plot(ax=ax[0])
-# coarse.h.mean("xC").plot(ax=ax[1])
-
-# submeso_coarsen = submeso.h.mean("xC").coarsen(yC=10).mean().interp(yC=coarse.yC)
-
-# fig,ax = plt.subplots()
-# (submeso_coarsen-coarse.h.mean("xC")).plot(vmin=-100,vmax=100,cmap="RdBu")
-# vm = 10
-# (submeso_coarsen-coarse.h.mean("xC")).plot.contour(levels=[-vm,vm], colors="0.2")
-# ax.axvline(-50)
-# ax.axvline(170)
-
-# data = dict(
-#     submeso=dict(D=submeso, label="1 km"),
-#     coarse=dict(D=coarse, label="10 km"),
-# )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# fig,ax = plt.subplots(3,1)
-
-# for p,a in zip(["P", "N", "new_production"], np.ravel(ax)):
-
-#     dims = ["xC", "yC", "zC"]
-#     average = lambda A: A.mean(dims)
-    
-#     for D in [submeso, coarse]:
-#         var = average((86400*D[p]))
-#         # print(var.sel(time=slice(12,80)).integrate("time"))
-#         var.plot(ax=a)
-#     a.set(xlim=[0,80])
-
-
-
-# # z_mld = (submeso.zC/submeso.h).chunk({"time":1})
-# # z_mld.name = "z_mld"
-
-# # nflux = (submeso.w*submeso.N).chunk({"time":1})*86400
-# # nflux.name = "nflux"
-
-# # bins = [
-# #     np.linspace(-2,0,20),
-# #     np.linspace(-1e3,1e3,700),
-# # ]
-# # H = histogram(z_mld, nflux, bins=bins).load()
-# # H = H/H.sum("nflux_bin")
-
-# # # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
-# # ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
-# # # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
-
-
-# # z_mld = (coarse.zC/coarse.h).chunk({"time":1})
-# # z_mld.name = "z_mld"
-
-# # nflux = (coarse.w*coarse.N).chunk({"time":1})*86400
-# # nflux.name = "nflux"
-
-# # bins = [
-# #     np.linspace(-2,0,20),
-# #     np.linspace(-1e3,1e3,700),
-# # ]
-# # H = histogram(z_mld, nflux, bins=bins).load()
-# # H = H/H.sum("nflux_bin")
-
-# # # H.sel(nflux_bin=slice(-60,60)).plot(vmax=0.01)
-# # ((H*H.nflux_bin).sum("nflux_bin")/H.sum("nflux_bin")).plot(y="z_mld_bin", color="r")
-# # # H.cumsum("nflux_bin").plot.contour(levels=[0.01,0.2,0.5,0.8,0.99], colors="0.5")
-
-
-
-
-# # bins = [
-# #     np.linspace(0,1e-7,50),
-# #     np.linspace(0,0.1,50),
-# # ]
-
-# # zmin = -100
-# # H = histogram(submeso.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
-# #               86400*submeso.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
-# # H.plot(robust=True)
-
-# # H = histogram(coarse.sel(zC=slice(zmin,0))["∇b"].chunk({"time":1}), 
-# #               86400*coarse.sel(zC=slice(zmin,0)).new_production.chunk({"time":1}), bins=bins).compute()
-# # H.plot(robust=True)
-
-# # submeso.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-# # coarse.new_production.mean(["xC", "yC"]).integrate("zC").plot()
-
-# # tslice = slice(12,80)
-
-# # da = 86400*submeso.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
-# # da = (da*np.gradient(da.time)).cumsum("time")
-
-# # db = 86400*coarse.new_production.mean(["xC", "yC"]).integrate("zC").sel(time=tslice)
-# # db = (db*np.gradient(db.time)).cumsum("time")
-
-# # ((da-db)/db).plot()
-
-
-# submeso.new_production.mean(["xC", "yC"]).T.sel(zC=slice(-60,0), time=slice(12,80)).plot.contourf(levels=10,vmax=3e-5)
-# coarse.new_production.mean(["xC", "yC"]).T.sel(zC=slice(-60,0), time=slice(12,80)).plot.contourf(levels=10,vmax=3e-5)
-
-
-# submeso.new_production.mean(["xC"]).integrate("zC").T.sel(time=slice(12,80)).plot.contourf(levels=10,vmin=0, vmax=1e-3)
-# coarse.new_production.mean(["xC"]).integrate("zC").T.sel(time=slice(12,80)).plot.contourf(levels=10,vmin=0, vmax=1e-3)
-
-
-# submeso.new_production.mean(["xC", "yC"]).integrate("zC").T.sel(time=slice(12,80)).plot()
-# coarse.new_production.mean(["xC", "yC"]).integrate("zC").T.sel(time=slice(12,80)).plot()

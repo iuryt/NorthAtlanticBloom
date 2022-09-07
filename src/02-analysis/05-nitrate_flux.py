@@ -148,15 +148,13 @@ fig.savefig(f"../../reports/figures/nflux{sinking_text}_mu{mu}.png", facecolor="
 (
     (
         (86400*datamld.sel(exp="submesoscale").w*datamld.sel(exp="submesoscale").N)
-        .mean(["xC","yC"]).sel(time=slice(12,40),mld=1).integrate("time")
+        .mean(["xC","yC"]).sel(time=slice(12,32),mld=1).integrate("time")
     ),
     (
         (86400*(datamld.sel(exp="coarse_mle").w+datamld.sel(exp="coarse_mle").w_mle)*datamld.sel(exp="coarse_mle").N)
-        .mean(["xC","yC"]).sel(time=slice(12,40),mld=1).integrate("time")
+        .mean(["xC","yC"]).sel(time=slice(12,32),mld=1).integrate("time")
     )
 )
-
-
 
 
 
