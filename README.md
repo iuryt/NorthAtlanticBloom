@@ -3,6 +3,10 @@ North Atlantic Bloom
 
 Investigating the role of vertical nitrate flux on phytoplankton bloom.
 
+<p align="center">
+  <img src="https://github.com/iuryt/NorthAtlanticBloom/blob/main/reports/figures/3D_w.png" /></br>
+</p>
+
 
 Project Organization
 ------------
