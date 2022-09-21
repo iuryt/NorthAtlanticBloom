@@ -11,7 +11,7 @@ mle = true
 using NCDatasets
 ds = Dataset("../../data/interim/input_coarse.nc")
 
-i = 97
+i = 97 # index for time=12days
 
 const initial_time = ds["time"][i]
 const H = 1000 # maximum depth
