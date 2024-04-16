@@ -55,3 +55,34 @@ Project Organization
 --------
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+
+# Citing this code
+
+The paper:
+```latex
+@ARTICLE{simoessousa2022b,
+    AUTHOR={Simoes-Sousa, Iury T. and Tandon, Amit and Pereira, Filipe and Lazaneo, Caue Z. and Mahadevan, Amala},   
+    TITLE={Mixed layer eddies supply nutrients to enhance the spring phytoplankton bloom},      
+    JOURNAL={Frontiers in Marine Science},      
+    VOLUME={9},           
+    YEAR={2022},        
+    URL={https://www.frontiersin.org/articles/10.3389/fmars.2022.825027},   
+    DOI={10.3389/fmars.2022.825027},
+    URL={https://doi.org/10.3389/fmars.2022.825027},
+    ISSN={2296-7745},
+}
+```
+
+The software:
+```latex
+@software{simoessousa2022b_software,
+  author       = {Iury T. Simoes-Sousa},
+  title        = {{github.com/iuryt/NorthAtlanticBloom}},
+  month        = apr,
+  year         = 2024,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.10980522},
+  url          = {https://doi.org/10.5281/zenodo.10980522},
+}
+```
